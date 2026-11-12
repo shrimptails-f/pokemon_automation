@@ -1,0 +1,30 @@
+version: '3'
+
+tasks:
+  setup:
+    desc: 開発ツールを確認する
+    cmds:
+      - task: doctor
+
+  doctor:
+    desc: 開発環境のバージョンを確認する
+    cmds:
+      - test "$(id -u)" -ne 0
+      - task --version
+      - arduino-cli version
+      - arduino-cli core list
+      - python3 --version
+      - codex --version
+      - claude --version
+
+  codex:
+    desc: Codex を起動する
+    interactive: true
+    cmds:
+      - codex --no-daemon --dangerously-bypass-approvals-and-sandbox
+
+  claude:
+    desc: Claude Code を起動する
+    interactive: true
+    cmds:
+      - claude --dangerously-skip-permissions

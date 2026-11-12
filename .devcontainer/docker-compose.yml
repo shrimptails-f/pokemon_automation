@@ -1,0 +1,21 @@
+services:
+  arduino:
+    build:
+      context: ..
+      dockerfile: .devcontainer/infra/arduino/Dockerfile
+    user: "1000:1000"
+    init: true
+    tty: true
+    working_dir: /home/dev/src
+    volumes:
+      - ..:/home/dev/src
+      - ${HOME}/.gitconfig:/home/dev/.gitconfig:ro
+      - ${HOME}/.codex:/home/dev/.codex
+      - ${HOME}/.claude:/home/dev/.claude
+      - ${HOME}/.claude.json:/home/dev/.claude.json
+      - arduino-data:/home/dev/.arduino15
+      - arduino-sketchbook:/home/dev/Arduino
+
+volumes:
+  arduino-data:
+  arduino-sketchbook:

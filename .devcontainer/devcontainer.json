@@ -1,0 +1,20 @@
+{
+  "name": "Pokemon Automation",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "arduino",
+  "workspaceFolder": "/home/dev/src",
+  "remoteUser": "dev",
+  "postCreateCommand": "task setup",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "editorconfig.editorconfig",
+        "ms-vscode.cpptools",
+        "ms-python.python",
+        "xaver.clang-format",
+        "vscode-arduino.vscode-arduino-community"
+      ],
+      "settings": { "terminal.integrated.defaultProfile.linux": "bash" }
+    }
+  }
+}
