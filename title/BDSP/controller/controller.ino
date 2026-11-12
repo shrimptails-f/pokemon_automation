@@ -1,4 +1,5 @@
 #include "src/SwitchJoystick.h"
+#include <stdlib.h>
 
 SwitchJoystick_ pad;
 char line[32];
@@ -16,6 +17,20 @@ const Button buttons[] = {
 
 void command() {
   if (strcmp(line, "PING") == 0) { Serial1.println(F("PONG")); return; }
+  if (strncmp(line, "STICK_UP ", 9) == 0) {
+    const char *duration = line + 9;
+    if (*duration == '\0') { Serial1.println(F("ERR")); return; }
+    for (const char *p = duration; *p; ++p) {
+      if (*p < '0' || *p > '9') { Serial1.println(F("ERR")); return; }
+    }
+    long ms = atol(duration);
+    if (ms < 1 || ms > 3000) { Serial1.println(F("ERR")); return; }
+    pad.setYAxis(0);
+    delay(ms);
+    pad.setYAxis(128);
+    Serial1.println(F("OK"));
+    return;
+  }
   for (const auto &b : buttons) {
     if (strcmp(line, b.name) != 0) continue;
     if (b.button >= 0) pad.pressButton(b.button); else pad.setHatSwitch(b.hat);
