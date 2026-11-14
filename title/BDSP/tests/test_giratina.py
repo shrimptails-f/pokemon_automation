@@ -8,10 +8,10 @@ from title.BDSP.pokemon.giratina.classify import classify_directory, classify_fr
 
 
 def test_reference_images():
-    base = Path(__file__).resolve().parents[1] / 'pokemon' / 'giratina'
-    assert classify_frame(base / '1' / 'frame_018_9.155s.png')[0] == 'normal'
-    assert classify_frame(base / '7' / 'frame_014_11.619s.png')[0] == 'unknown'
-    assert classify_frame(base / 'shiniy' / 'スクリーンショット 2026-11-13 171851.png')[0] == 'shiny_candidate'
+    base = Path(__file__).resolve().parent / 'fixtures' / 'giratina'
+    assert classify_frame(base / 'normal.png')[0] == 'normal'
+    assert classify_frame(base / 'unknown.png')[0] == 'unknown'
+    assert classify_frame(base / 'shiny_reference.png')[0] == 'shiny_candidate'
 
 
 def test_directory_requires_two_normal_frames_and_prioritizes_shiny(tmp_path, monkeypatch):
