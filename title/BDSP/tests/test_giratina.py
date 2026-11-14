@@ -9,20 +9,34 @@ from title.BDSP.pokemon.giratina.classify import classify_directory, classify_fr
 
 def test_reference_images():
     base = Path(__file__).resolve().parents[1] / 'pokemon' / 'giratina'
-    for name in ('1', '2', '3'):
-        assert classify_directory(base / name)[0] == 'normal'
-    assert classify_directory(base / '6')[0] == 'normal'
-    assert classify_directory(base / '7')[0] == 'normal'
-    assert classify_directory(base / 'unnokwn' / '1')[0] == 'normal'
-    assert classify_directory(base / 'unnokwn' / '2')[0] == 'normal'
+    assert classify_frame(base / '1' / 'frame_018_9.155s.png')[0] == 'normal'
     assert classify_frame(base / '7' / 'frame_014_11.619s.png')[0] == 'unknown'
-    for name in ('4', '5'):
-        assert classify_directory(base / name)[0] == 'unknown'
-    references = list((base / 'shiniy').glob('*.png'))
-    assert len(references) == 3
-    for path in references:
-        assert classify_frame(path)[0] == 'shiny_candidate'
-    assert classify_frame(base / '6' / 'frame_022_13.654s.png')[0] == 'unknown'
+    assert classify_frame(base / 'shiniy' / 'スクリーンショット 2026-11-13 171851.png')[0] == 'shiny_candidate'
+
+
+def test_directory_requires_two_normal_frames_and_prioritizes_shiny(tmp_path, monkeypatch):
+    from title.BDSP.pokemon.giratina import classify as module
+
+    states = {}
+    monkeypatch.setattr(module, 'classify_frame', lambda path: (states[path.name], 0, 0))
+    for i, state in enumerate(('normal', 'normal', 'shiny_candidate')):
+        path = tmp_path / f'frame_{i:03d}_{9 + i * .1:.3f}s.png'
+        path.touch()
+        states[path.name] = state
+        expected = ('unknown', 'normal', 'shiny_candidate')[i]
+        assert classify_directory(tmp_path)[0] == expected
+
+
+def test_directory_does_not_reset_on_ambiguous_cyan(tmp_path, monkeypatch):
+    from title.BDSP.pokemon.giratina import classify as module
+
+    for i in range(3):
+        (tmp_path / f'frame_{i:03d}_{9 + i * .1:.3f}s.png').touch()
+    monkeypatch.setattr(module, 'classify_frame', lambda p: ('unknown', 0, .1) if '002' in p.name else ('normal', .2, 0))
+    monkeypatch.setattr(module, 'is_sendout', lambda p: False)
+    assert classify_directory(tmp_path)[0] == 'unknown'
+    monkeypatch.setattr(module, 'is_sendout', lambda p: True)
+    assert classify_directory(tmp_path)[0] == 'normal'
 
 
 def test_missing_or_blank_frames_are_unknown():
