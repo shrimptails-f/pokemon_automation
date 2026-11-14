@@ -10,6 +10,7 @@ services:
     volumes:
       - ..:/home/dev/src
       - ${HOME}/.gitconfig:/home/dev/.gitconfig:ro
+      - ${HOME}/.config/gh:/home/dev/.config/gh:ro
       - ${HOME}/.codex:/home/dev/.codex
       - ${HOME}/.claude:/home/dev/.claude
       - ${HOME}/.claude.json:/home/dev/.claude.json

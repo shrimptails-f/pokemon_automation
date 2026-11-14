@@ -4,3 +4,7 @@ parse_git_branch() {
 }
 
 export PS1="\u@\h:\w\[\033[34m\]\$(parse_git_branch)\[\033[00m\] $ "
+
+if [ -r /home/dev/src/scripts/gh-wrappers.bash ]; then
+    source /home/dev/src/scripts/gh-wrappers.bash
+fi

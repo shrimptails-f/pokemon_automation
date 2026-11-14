@@ -6,7 +6,7 @@ ENV TZ=Asia/Tokyo \
     PATH=/home/dev/.local/bin:${PATH}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl git ripgrep sudo python3 python3-pip python3-venv \
+    ca-certificates curl git gh ripgrep sudo python3 python3-pip python3-venv \
     gcc-avr avr-libc avrdude make clang-format cppcheck gdb nodejs npm \
     && rm -rf /var/lib/apt/lists/* \
     && arch="$(dpkg --print-architecture)" \
@@ -24,4 +24,4 @@ WORKDIR /home/dev/src
 RUN curl -fsSL https://claude.ai/install.sh -o /tmp/install-claude.sh \
     && bash /tmp/install-claude.sh && rm /tmp/install-claude.sh \
     && arduino-cli core update-index && arduino-cli core install arduino:avr \
-    && task --version && codex --version && claude --version && arduino-cli version
+    && task --version && codex --version && claude --version && gh --version && arduino-cli version
