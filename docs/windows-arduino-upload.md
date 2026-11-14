@@ -1,6 +1,6 @@
 # Windows から Arduino Micro に書き込む
 
-`title/BDSP/controller` の Switch 操作用プログラムを、Windows の Arduino CLI でコンパイルして書き込む手順です。WSL の USB 自動接続を使った書き込みでは、Arduino のブートローダーへの切り替え後、WSL への再接続が間に合わず失敗したため、Windows から直接書き込みました。
+`controller/switch_arduino_micro` の Switch 操作用プログラムを、Windows の Arduino CLI でコンパイルして書き込む手順です。WSL の USB 自動接続を使った書き込みでは、Arduino のブートローダーへの切り替え後、WSL への再接続が間に合わず失敗したため、Windows から直接書き込みました。
 
 ## 準備
 
@@ -24,10 +24,10 @@ arduino-cli board list
 
 ## Windows にソースをコピー
 
-以下の `$source` は WSL のディストリビューション名が `Ubuntu`、ユーザー名が `user`、リポジトリが `~/git_wsl/pokemon_automation` の例。環境に合わせて変更する。スケッチのフォルダー名は `controller.ino` に合わせて `controller` にする。
+以下の `$source` は WSL のディストリビューション名が `Ubuntu`、ユーザー名が `user`、リポジトリが `~/git_wsl/pokemon_automation` の例。環境に合わせて変更する。スケッチのフォルダー名は `switch_arduino_micro.ino` に合わせて `switch_arduino_micro` にする。
 
 ```powershell
-$source = "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\title\BDSP\controller"; $sketch = "$env:TEMP\bdsp-sketch\controller"; New-Item -ItemType Directory -Force $sketch | Out-Null; Copy-Item -Recurse -Force "$source\*" $sketch; Test-Path "$sketch\controller.ino"
+$source = "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\controller\switch_arduino_micro"; $sketch = "$env:TEMP\bdsp-sketch\switch_arduino_micro"; New-Item -ItemType Directory -Force $sketch | Out-Null; Copy-Item -Recurse -Force "$source\*" $sketch; Test-Path "$sketch\switch_arduino_micro.ino"
 ```
 
 `True` が表示されることを確認する。ソースを変更した場合は、再度コピーしてからコンパイルする。
@@ -50,4 +50,4 @@ arduino-cli upload --fqbn arduino:avr:micro --port COM5 --input-dir "$env:TEMP\b
 
 `COM5` は `board list` で確認した Arduino のポートに置き換える。書き込み時に Arduino はブートローダーとして再接続するため、`New upload port: COM7 (serial)` のように別のポートが表示されることがある。コマンドがエラーなく終了したことを確認する。
 
-書き込み後は Arduino の USB を PC から外して Switch ドックに接続する。SH-U09C との配線および Windows からの操作は [BDSP の README](../title/BDSP/README.md) を参照する。
+書き込み後は Arduino の USB を PC から外して Switch ドックに接続する。SH-U09C との配線は [Arduino Micro の README](../controller/switch_arduino_micro/README.md) を参照する。Windows からの操作は [BDSP の README](../title/BDSP/README.md) を参照する。

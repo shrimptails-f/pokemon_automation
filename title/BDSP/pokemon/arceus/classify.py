@@ -35,7 +35,7 @@ def classify_directory(directory):
     paths = []
     for path in sorted(directory.glob("frame_*.png")):
         match = FRAME.match(path.name)
-        if match and 4.75 <= float(match.group(1)) <= 5.4:
+        if match and 5.0 <= float(match.group(1)) <= 5.4:
             paths.append(path)
     if len(paths) < 2:
         return "unknown", []

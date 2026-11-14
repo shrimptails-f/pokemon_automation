@@ -8,4 +8,4 @@ set -- --fqbn arduino:avr:micro \
   --build-property 'build.usb_product="POKKEN CONTROLLER"' \
   --build-property 'build.usb_manufacturer="HORI CO.,LTD."' \
   --build-property 'build.extra_flags={build.usb_flags}'
-arduino-cli compile "$@" "$here/controller"
+arduino-cli compile "$@" "$here"

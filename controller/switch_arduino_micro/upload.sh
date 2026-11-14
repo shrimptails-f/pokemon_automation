@@ -13,5 +13,5 @@ arduino-cli compile --fqbn arduino:avr:micro \
   --build-property 'build.usb_product="POKKEN CONTROLLER"' \
   --build-property 'build.usb_manufacturer="HORI CO.,LTD."' \
   --build-property 'build.extra_flags={build.usb_flags}' \
-  --output-dir "$build_dir" "$here/controller"
-arduino-cli upload --fqbn arduino:avr:micro --port "$1" --input-dir "$build_dir" "$here/controller"
+  --output-dir "$build_dir" "$here"
+arduino-cli upload --fqbn arduino:avr:micro --port "$1" --input-dir "$build_dir" "$here"
