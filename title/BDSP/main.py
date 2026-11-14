@@ -16,14 +16,18 @@ def main():
     parser = argparse.ArgumentParser(description="画像を確認しながら遭遇を繰り返す")
     parser.add_argument("port")
     parser.add_argument("--device", type=int, default=0)
-    parser.add_argument("--move-ms", type=int, required=True)
-    parser.add_argument("--a-after", type=float, required=True)
+    parser.add_argument("--pokemon", choices=("arceus", "giratina"), default="arceus")
+    parser.add_argument("--move-ms", type=int)
+    parser.add_argument("--a-after", type=float)
+    parser.add_argument("--capture-delay", type=float, default=8.2)
+    parser.add_argument("--capture-duration", type=float, default=2.3)
+    parser.add_argument("--capture-interval", type=float, default=2.3 / 24)
     parser.add_argument("--auto-reset", action="store_true")
     parser.add_argument("--discord", action="store_true")
     parser.add_argument("--reset-first", action="store_true")
     parser.add_argument("--output", type=Path, default=Path.home() / "Pictures" / "BDSP-captures")
     args = parser.parse_args()
-    if not 1 <= args.move_ms <= 3000 or not 0 <= args.a_after <= 120 or args.device < 0:
+    if args.device < 0 or (args.pokemon == "arceus" and (args.move_ms is None or args.a_after is None or not 1 <= args.move_ms <= 3000 or not 0 <= args.a_after <= 120)) or (args.pokemon == "giratina" and args.a_after is not None and not 0 <= args.a_after <= 120) or not 0 <= args.capture_delay <= 120 or not 0.1 <= args.capture_duration <= 120 or not 0.05 <= args.capture_interval <= 60:
         parser.error("move-ms は 1〜3000、a-after は 0〜120、device は 0 以上にしてください")
     try:
         from title.BDSP.pokemon.arceus.classify import classify_directory
@@ -61,6 +65,11 @@ def main():
             with OpenCVCapture(args.device) as capture:
                 capture.read()
                 with SerialController(args.port) as controller:
+                    if args.pokemon == "giratina":
+                        from title.BDSP.pokemon.giratina.encounter import encounter as giratina_encounter
+                        return giratina_encounter(StoppableController(controller), StoppableCapture(capture), args.output,
+                                                  args.capture_delay, args.capture_duration, args.capture_interval,
+                                                  args.a_after if args.a_after is not None else 3, sleep=sleep)
                     return encounter(StoppableController(controller), StoppableCapture(capture), classify_directory,
                                      args.output, args.move_ms, args.a_after, sleep=sleep)
 

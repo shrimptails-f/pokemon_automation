@@ -69,8 +69,11 @@ class DiscordPorts:
     def should_reset(self, result):
         async def ask():
             images = sorted(result.directory.glob("frame_*.png"))
-            if not images or len(images) > 10:
+            if not images:
                 raise RuntimeError("確認画像を送信できません。")
+            if len(images) > 10:
+                # Sample across the capture window for Discord’s attachment limit.
+                images = [images[round(i * (len(images) - 1) / 9)] for i in range(10)]
             view = ReviewView(self.user_id)
             files = [discord.File(str(path)) for path in images]
             try:
