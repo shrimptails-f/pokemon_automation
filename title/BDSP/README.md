@@ -111,6 +111,8 @@ python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\tools\discor
 
 ## Discord で画像を確認しながら周回
 
+Arduino の接続確認は Discord スレッド作成前に行い、接続は周回終了まで使い続けます。エラー時は `--debug` がなくても発生箇所を表示します。Arduino の送受信を詳しく調べる場合は `--debug` を指定してください。
+
 `review_loop.py` に `--discord` を付けると、開始時にスレッドを作り、状況メッセージを更新します。画像確認が必要な回だけ指定ユーザーをメンションして画像とボタンを送り、返答を時間制限なく待ちます。「停止」ではリセットしません。通信や送信に失敗した場合も停止します。通信断やPC終了時は最後の状況表示が残るため、更新時刻を確認してください。再起動すると新しいスレッドを作成し、古いボタンは使用できません。
 
 1. Windows で `python -m pip install pyserial opencv-python discord.py python-dotenv` を実行します。
