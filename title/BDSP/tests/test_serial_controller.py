@@ -62,3 +62,77 @@ def test_corrupt_response_is_not_accepted(monkeypatch):
         with SerialController('COM8'):
             pass
     assert port.closed
+
+
+def test_neutral_expiration_establishes_new_session():
+    controller = SerialController('COM8')
+    old = controller.session
+    calls = []
+
+    def request(command, expected):
+        calls.append((command, controller.session))
+        return {'STATUS': 'EXPIRED', 'HELLO': 'ACTIVE'}[command]
+
+    controller._request = request
+    controller._recover_neutral()
+    assert calls[0] == ('STATUS', old)
+    assert calls[1][0] == 'HELLO'
+    assert calls[1][1] != old
+    assert controller.sequence == 0
+
+
+def test_other_active_session_is_not_taken_over(monkeypatch):
+    from automation.adapters.serial_controller import ProtocolError
+    controller = SerialController('COM8')
+    calls = []
+
+    def request(command, expected):
+        calls.append(command)
+        if command == 'KEEP':
+            raise ProtocolError('SESSION')
+        return 'ACTIVE'
+
+    controller._request = request
+    monkeypatch.setattr(controller.stopped, 'wait', lambda _: False)
+    with pytest.raises(RuntimeError, match='復旧に失敗'):
+        controller._recover_neutral()
+    assert 'HELLO' not in calls
+
+
+def test_session_rejection_checks_status_before_stopping():
+    from automation.adapters.serial_controller import ProtocolError
+    controller = SerialController('COM8')
+    calls = []
+
+    def request(command, expected):
+        calls.append(command)
+        if command.startswith('SET'):
+            raise ProtocolError('SESSION')
+        return 'EXPIRED'
+
+    controller._request = request
+    with pytest.raises(ProtocolError):
+        controller.set_state(buttons=4)
+    assert calls[-1] == 'STATUS'
+    assert controller.failure is not None
+    assert controller.stopped.is_set()
+
+
+def test_heartbeat_does_not_recover_pressed_state(monkeypatch):
+    from automation.adapters.serial_controller import ProtocolError
+    controller = SerialController('COM8')
+    controller.state = (4, 8, 128, 128, 128, 128)
+    calls = []
+
+    def request(command, expected):
+        calls.append(command)
+        if command == 'KEEP':
+            raise ProtocolError('SESSION')
+        return 'EXPIRED'
+
+    controller._request = request
+    monkeypatch.setattr(controller.stopped, 'wait', lambda _: False)
+    controller._heartbeat()
+    assert calls == ['KEEP', 'STATUS']
+    assert controller.failure is not None
+    assert controller.stopped.is_set()

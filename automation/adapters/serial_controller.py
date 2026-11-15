@@ -10,6 +10,20 @@ logger = logging.getLogger(__name__)
 BUTTONS = {name: bit for bit, name in enumerate(("Y", "B", "A", "X", "L", "R", "ZL", "ZR", "MINUS", "PLUS", "LSTICK", "RSTICK", "HOME", "CAPTURE"))}
 HATS = {"UP": 0, "RIGHT": 2, "DOWN": 4, "LEFT": 6}
 NEUTRAL = (0, 8, 128, 128, 128, 128)
+RESPONSE_TIMEOUT = 0.35
+ATTEMPTS = 3
+HEARTBEAT_INTERVAL = 0.4
+LEASE_SECONDS = 2.0
+RECOVERY_ATTEMPTS = 6
+RECOVERY_INTERVAL = 0.5
+assert LEASE_SECONDS > HEARTBEAT_INTERVAL + RESPONSE_TIMEOUT * ATTEMPTS
+assert RECOVERY_INTERVAL * (RECOVERY_ATTEMPTS - 1) > LEASE_SECONDS
+
+
+class ProtocolError(RuntimeError):
+    def __init__(self, result):
+        self.result = result
+        super().__init__(f"Arduino 応答エラー: {result}")
 
 
 class SerialController:
@@ -31,14 +45,7 @@ class SerialController:
             self.port.write(b"\n")
             time.sleep(0.5)
             self.port.reset_input_buffer()
-            for attempt in range(6):
-                try:
-                    self._request("HELLO", expected="ACTIVE")
-                    break
-                except RuntimeError as exc:
-                    if "SESSION" not in str(exc) or attempt == 5:
-                        raise
-                    time.sleep(0.5)
+            self._establish_session()
             self.thread = threading.Thread(target=self._heartbeat, daemon=True)
             self.thread.start()
         except BaseException:
@@ -52,10 +59,12 @@ class SerialController:
                 raise RuntimeError("コントローラー通信が停止しました") from self.failure
             seq = self.sequence
             frame = encode_frame(f"1,{self.session},{seq},{command}")
-            for _ in range(3):
+            for _ in range(ATTEMPTS):
+                deadline = time.monotonic() + RESPONSE_TIMEOUT
+                self.port.write_timeout = RESPONSE_TIMEOUT
                 self.port.write(frame)
-                deadline = time.monotonic() + 0.35
                 while time.monotonic() < deadline:
+                    self.port.timeout = min(0.15, max(0, deadline - time.monotonic()))
                     raw = self.port.readline()
                     try:
                         fields = decode_frame(raw).split(",")
@@ -63,19 +72,87 @@ class SerialController:
                         continue
                     if len(fields) != 5 or fields[:4] != ["1", str(self.session), str(seq), command.split(",", 1)[0]]:
                         continue
-                    if fields[4] != expected:
-                        raise RuntimeError(f"Arduino 応答エラー: {fields[4]}")
-                    return
+                    if expected is not None and fields[4] != expected:
+                        raise ProtocolError(fields[4])
+                    return fields[4]
             raise TimeoutError("Arduino 応答がありません。操作結果は不明です")
 
-    def _heartbeat(self):
-        while not self.stopped.wait(0.4):
+    def _establish_session(self):
+        for attempt in range(RECOVERY_ATTEMPTS):
             try:
-                self._request("KEEP", "ACTIVE")
-            except Exception as exc:
-                self.failure = exc
-                self.stopped.set()
+                self._request("HELLO", "ACTIVE")
                 return
+            except ProtocolError as exc:
+                if exc.result != "SESSION":
+                    raise
+                status = self._request("STATUS", None)
+                if status not in ("READY", "ACTIVE", "EXPIRED"):
+                    raise ProtocolError(status)
+                if status != "ACTIVE":
+                    self.session = secrets.randbits(32) or 1
+                if attempt == RECOVERY_ATTEMPTS - 1:
+                    raise
+                time.sleep(RECOVERY_INTERVAL)
+
+    def _recover_neutral(self):
+        # Called under lock only when no SET is in flight and the last confirmed
+        # state is neutral. Never re-send a state whose result is unknown.
+        last_error = None
+        for attempt in range(RECOVERY_ATTEMPTS):
+            try:
+                status = self._request("STATUS", None)
+                if status == "ACTIVE":
+                    try:
+                        self._request("KEEP", "ACTIVE")
+                        return
+                    except ProtocolError as exc:
+                        if exc.result != "SESSION":
+                            raise
+                elif status in ("READY", "EXPIRED"):
+                    old_session = self.session
+                    while self.session == old_session:
+                        self.session = secrets.randbits(32) or 1
+                    self.sequence = 0
+                    self._request("HELLO", "ACTIVE")
+                    return
+                else:
+                    raise ProtocolError(status)
+            except (OSError, TimeoutError, ProtocolError) as exc:
+                last_error = exc
+                if isinstance(exc, OSError) and not isinstance(exc, TimeoutError):
+                    try:
+                        import serial
+                        self.port.close()
+                        self.port = serial.Serial(self.port_name, 115200, timeout=0.15, write_timeout=0.5)
+                        self.port.write(b"\n")
+                        self.port.reset_input_buffer()
+                    except OSError as reopen_error:
+                        last_error = reopen_error
+            if attempt + 1 < RECOVERY_ATTEMPTS:
+                if self.stopped.wait(RECOVERY_INTERVAL):
+                    raise RuntimeError("復旧を中止しました")
+        raise RuntimeError("中立状態からの通信復旧に失敗しました") from last_error
+
+    def _heartbeat(self):
+        while not self.stopped.wait(HEARTBEAT_INTERVAL):
+            with self.lock:
+                try:
+                    self._request("KEEP", "ACTIVE")
+                except Exception as exc:
+                    if self.state == NEUTRAL and not self.failure:
+                        try:
+                            self._recover_neutral()
+                            continue
+                        except Exception as recovery_error:
+                            exc = recovery_error
+                    if isinstance(exc, ProtocolError) and exc.result == "SESSION":
+                        try:
+                            logger.warning("更新拒否後の Arduino 状態: %s", self._request("STATUS", None))
+                        except Exception:
+                            logger.warning("Arduino の状態を確認できませんでした", exc_info=True)
+                    self.failure = exc
+                    self.stopped.set()
+                    return
 
     def set_state(self, buttons=0, hat=8, x=128, y=128, rx=128, ry=128):
         values = (buttons, hat, x, y, rx, ry)
@@ -89,7 +166,13 @@ class SerialController:
                 self._request("SET," + ",".join(map(str, values)), "APPLIED")
                 self.state = values
             except Exception as exc:
+                if isinstance(exc, ProtocolError) and exc.result == "SESSION":
+                    try:
+                        logger.warning("状態指定拒否後の Arduino 状態: %s", self._request("STATUS", None))
+                    except Exception:
+                        logger.warning("Arduino の状態を確認できませんでした", exc_info=True)
                 self.failure = exc
+                self.stopped.set()
                 raise
 
     def send(self, command):
