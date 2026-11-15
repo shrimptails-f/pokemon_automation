@@ -37,6 +37,7 @@ class SerialController:
         self.stopped = threading.Event()
         self.failure = None
         self.state = NEUTRAL
+        self.timed_inflight = False
 
     def __enter__(self):
         import serial
@@ -58,7 +59,7 @@ class SerialController:
             if self.failure:
                 raise RuntimeError("コントローラー通信が停止しました") from self.failure
             seq = self.sequence
-            frame = encode_frame(f"1,{self.session},{seq},{command}")
+            frame = encode_frame(f"2,{self.session},{seq},{command}")
             for _ in range(ATTEMPTS):
                 deadline = time.monotonic() + RESPONSE_TIMEOUT
                 self.port.write_timeout = RESPONSE_TIMEOUT
@@ -70,7 +71,7 @@ class SerialController:
                         fields = decode_frame(raw).split(",")
                     except ValueError:
                         continue
-                    if len(fields) != 5 or fields[:4] != ["1", str(self.session), str(seq), command.split(",", 1)[0]]:
+                    if len(fields) != 5 or fields[:4] != ["2", str(self.session), str(seq), command.split(",", 1)[0]]:
                         continue
                     if expected is not None and fields[4] != expected:
                         raise ProtocolError(fields[4])
@@ -139,7 +140,7 @@ class SerialController:
                 try:
                     self._request("KEEP", "ACTIVE")
                 except Exception as exc:
-                    if self.state == NEUTRAL and not self.failure:
+                    if self.state == NEUTRAL and not self.failure and not self.timed_inflight:
                         try:
                             self._recover_neutral()
                             continue
@@ -155,6 +156,10 @@ class SerialController:
                     return
 
     def set_state(self, buttons=0, hat=8, x=128, y=128, rx=128, ry=128):
+        with self.operation_lock:
+            self._set_state(buttons, hat, x, y, rx, ry)
+
+    def _set_state(self, buttons=0, hat=8, x=128, y=128, rx=128, ry=128):
         values = (buttons, hat, x, y, rx, ry)
         if any(not isinstance(v, int) or not 0 <= v <= limit for v, limit in zip(values, (65535, 8, 255, 255, 255, 255))):
             raise ValueError("入力状態が範囲外です")
@@ -184,27 +189,46 @@ class SerialController:
             state = list(self.state)
             if command in BUTTONS:
                 state[0] |= 1 << BUTTONS[command]
-                duration = 0.15
+                duration_ms = 150
             elif command in HATS:
                 state[1] = HATS[command]
-                duration = 0.15
+                duration_ms = 150
             elif command.startswith("STICK_UP "):
                 try:
-                    ms = int(command[9:])
+                    duration_ms = int(command[9:])
                 except ValueError as exc:
                     raise ValueError("移動時間が不正です") from exc
-                if not 1 <= ms <= 3000:
+                if not 1 <= duration_ms <= 3000:
                     raise ValueError("移動時間が範囲外です")
                 state[3] = 0
-                duration = ms / 1000
             else:
                 raise ValueError(f"不明な操作: {command}")
-            previous = self.state
-            self.set_state(*state)
-        # Heartbeat continues while waiting. Do not release after a communication failure.
-        if self.stopped.wait(duration):
-            raise RuntimeError("コントローラー通信が停止しました") from self.failure
-        self.set_state(*previous)
+            if self.sequence == 0xffffffff:
+                raise RuntimeError("要求番号を使い切りました")
+            self.sequence += 1
+            self.timed_inflight = True
+            command = "TIMED," + ",".join(map(str, (*state, *self.state, duration_ms)))
+
+        deadline = time.monotonic() + duration_ms / 1000 + RESPONSE_TIMEOUT * ATTEMPTS + 2
+        try:
+            while True:
+                result = self._request(command, None)
+                if result == "DONE":
+                    return
+                if result != "RUNNING":
+                    raise ProtocolError(result)
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Arduino の操作完了を確認できません")
+                if self.stopped.wait(min(0.05, max(0, deadline - time.monotonic()))):
+                    raise RuntimeError("コントローラー通信が停止しました") from self.failure
+        except Exception as exc:
+            with self.lock:
+                self.failure = exc
+                self.stopped.set()
+            raise
+        finally:
+            with self.lock:
+                self.timed_inflight = False
 
     def __exit__(self, *args):
         self.stopped.set()
