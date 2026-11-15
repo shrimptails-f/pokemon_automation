@@ -375,9 +375,9 @@ void SwitchJoystick_::sendState()
 	DynamicHID().SendReport(_hidReportId, data, _hidReportSize);
 }
 
-void SwitchJoystick_::sendState(uint8_t *data)
+int SwitchJoystick_::sendState(uint8_t *data)
 {
-	DynamicHID().SendReport(_hidReportId, data, _hidReportSize);
+	return DynamicHID().SendReport(_hidReportId, data, _hidReportSize);
 }
 
 #endif
