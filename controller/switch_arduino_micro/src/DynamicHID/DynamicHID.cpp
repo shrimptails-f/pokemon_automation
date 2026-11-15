@@ -108,6 +108,7 @@ int DynamicHID_::SendReport(uint8_t id, const void* data, int len)
 	// to release the endpoint.
 	auto ret2 = USB_Send(pluggedEndpoint, data, len);
 	auto ret = USB_Send(pluggedEndpoint | TRANSFER_RELEASE, &id, 1);
+	if (ret < 0 || ret2 < 0) return -1;
 	return ret + ret2;
 }
 

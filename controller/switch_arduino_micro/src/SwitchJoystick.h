@@ -110,7 +110,7 @@ public:
 	// 5th byte:	Left Joystick Y axis (0 is up, 255 is down, 128 is center)
 	// 6th byte:	Right Joystick X axis (0 is left, 255 is right, 128 is center)
 	// 7th byte:	Right Joystick Y axis (0 is up, 255 is down, 128 is center)
-	void sendState(uint8_t *data);
+	int sendState(uint8_t *data);
 };
 
 #endif // !defined(_USING_DYNAMIC_HID)
