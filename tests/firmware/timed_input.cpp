@@ -55,4 +55,28 @@ int main() {
   request("2,1,2,TIMED,4,8,128,128,128,128,0,8,128,128,128,128,3000");
   currentTime += 2001; loop();
   assert(expired && !active && !timedRunning && pad.states.back()[0] == 0);
+  assert(diagTimedResult == 4 && diagTimedSequence == 2);
+  auto receivedBefore = diagReceived, repliesBefore = diagReplies;
+  request("2,99,0,DIAG");
+  assert(Serial1.output.find("DIAG,") != std::string::npos);
+  assert(Serial1.output.find(":1:2:EXPIRED") != std::string::npos);
+  assert(diagReceived == receivedBefore + 1 && diagReplies == repliesBefore + 1);
+  // An echoed reply is never accepted as a request or answered again.
+  std::string echoed = Serial1.output;
+  assert(!echoed.empty() && echoed.back() == '\n');
+  echoed.pop_back();
+  snprintf(line, sizeof(line), "%s", echoed.c_str());
+  Serial1.output.clear();
+  auto repliesAfterDiag = diagReplies;
+  auto rejectedEcho = diagRejected;
+  command();
+  assert(Serial1.output.empty() && diagReplies == repliesAfterDiag);
+  assert(diagRejected == rejectedEcho + 1);
+  strcpy(line, "bad,0000");
+  auto rejectedBefore = diagRejected;
+  command();
+  assert(diagRejected == rejectedBefore + 1);
+  diagReceived = 0xffffffffUL;
+  increment(diagReceived);
+  assert(diagReceived == 0xffffffffUL);
 }

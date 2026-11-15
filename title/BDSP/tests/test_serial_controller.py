@@ -161,3 +161,25 @@ def test_heartbeat_does_not_recover_during_timed_operation(monkeypatch):
     assert calls == ['KEEP']
     assert controller.failure is not None
     assert controller.stopped.is_set()
+
+
+def test_timeout_reports_invalid_and_unmatched_responses(monkeypatch, caplog):
+    import itertools
+
+    controller = SerialController('COM8')
+    controller.port = FakePort()
+    controller.sequence = 12
+    responses = iter([b'corrupt\n', encode_frame(f'2,{controller.session},11,TIMED,DONE')])
+    controller.port.readline = lambda: next(responses, b'')
+    ticks = itertools.count()
+    monkeypatch.setattr('automation.adapters.serial_controller.time.monotonic', lambda: next(ticks) * 0.1)
+
+    with pytest.raises(TimeoutError, match='操作=TIMED.*番号=12.*送信=3回'):
+        controller._request('TIMED,4,8,128,128,128,128,0,8,128,128,128,128,150', None)
+
+    assert 'ポート=COM8' in caplog.text
+    assert '不正=1' in caplog.text
+    assert '別応答=1' in caplog.text
+    assert "corrupt" in caplog.text
+    assert len(controller.port.requests) == 3
+    assert all(request == controller.port.requests[0] for request in controller.port.requests)

@@ -60,23 +60,45 @@ class SerialController:
                 raise RuntimeError("コントローラー通信が停止しました") from self.failure
             seq = self.sequence
             frame = encode_frame(f"2,{self.session},{seq},{command}")
-            for _ in range(ATTEMPTS):
+            operation = command.split(",", 1)[0]
+            empty_reads = 0
+            invalid_reads = 0
+            mismatch_reads = 0
+            samples = []
+            started = time.monotonic()
+            for attempt in range(1, ATTEMPTS + 1):
                 deadline = time.monotonic() + RESPONSE_TIMEOUT
                 self.port.write_timeout = RESPONSE_TIMEOUT
                 self.port.write(frame)
                 while time.monotonic() < deadline:
                     self.port.timeout = min(0.15, max(0, deadline - time.monotonic()))
                     raw = self.port.readline()
+                    if not raw:
+                        empty_reads += 1
+                        continue
                     try:
                         fields = decode_frame(raw).split(",")
-                    except ValueError:
+                    except ValueError as exc:
+                        invalid_reads += 1
+                        if len(samples) < 3:
+                            samples.append(f"不正({exc}): {raw[:96]!r}")
                         continue
-                    if len(fields) != 5 or fields[:4] != ["2", str(self.session), str(seq), command.split(",", 1)[0]]:
+                    if len(fields) != 5 or fields[:4] != ["2", str(self.session), str(seq), operation]:
+                        mismatch_reads += 1
+                        if len(samples) < 3:
+                            samples.append(f"別の応答: {raw[:96]!r}")
                         continue
                     if expected is not None and fields[4] != expected:
                         raise ProtocolError(fields[4])
+                    if attempt > 1 or invalid_reads or mismatch_reads:
+                        logger.debug("応答を確認: 操作=%s 番号=%s 送信=%s回 経過=%.3f秒 不正=%s 別応答=%s 受信例=%s",
+                                     operation, seq, attempt, time.monotonic() - started, invalid_reads, mismatch_reads, samples)
                     return fields[4]
-            raise TimeoutError("Arduino 応答がありません。操作結果は不明です")
+            logger.warning("Arduino 応答タイムアウト: ポート=%s 操作=%s セッション=%s 番号=%s 送信=%s回 "
+                           "経過=%.3f秒 空読み=%s 不正=%s 別応答=%s 受信例=%s",
+                           self.port_name, operation, self.session, seq, ATTEMPTS, time.monotonic() - started,
+                           empty_reads, invalid_reads, mismatch_reads, samples)
+            raise TimeoutError(f"Arduino 応答がありません（操作={operation}, 番号={seq}, 送信={ATTEMPTS}回）。操作結果は不明です")
 
     def _establish_session(self):
         for attempt in range(RECOVERY_ATTEMPTS):
@@ -185,6 +207,7 @@ class SerialController:
             self._send(command)
 
     def _send(self, command):
+        button_command = command
         with self.lock:
             state = list(self.state)
             if command in BUTTONS:
@@ -222,6 +245,7 @@ class SerialController:
                 if self.stopped.wait(min(0.05, max(0, deadline - time.monotonic()))):
                     raise RuntimeError("コントローラー通信が停止しました") from self.failure
         except Exception as exc:
+            logger.warning("Arduino 操作の確認に失敗: 操作=%s 番号=%s エラー=%s", button_command, self.sequence, exc)
             with self.lock:
                 self.failure = exc
                 self.stopped.set()

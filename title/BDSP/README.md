@@ -16,6 +16,55 @@ Dev Container 内で `./controller/switch_arduino_micro/build.sh` を実行す�
 
 このスクリプトは Switch 向けの USB 識別情報を指定します。書き込み後は通常のシリアルポートとして認識されない場合があります。再書き込み時にポートが見つからない場合は、Arduino のリセットボタンを素早く 2 回押してブートローダーを起動し、一時的に現れるポートを指定してください。タイミングによっては再試行が必要です。
 
+## Windows から WSL のソースを使う
+
+WSL にある作業ディレクトリは、Windows の PowerShell から `\\wsl.localhost\<ディストリビューション名>\<WSL 内のパス>` で参照できます。Windows 側に別途リポジトリをクローンする必要はありません。次は WSL の `Ubuntu` にある `/home/user/git_wsl/pokemon_automation` の例です。自分のディストリビューション名とパスに合わせてください。
+
+```powershell
+$repo = "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation"
+Test-Path "$repo\title\BDSP\review_loop.py"
+python "$repo\title\BDSP\review_loop.py" COM8 --device 0 --pokemon giratina --reset-first --discord --debug
+```
+
+`Test-Path` が `True` であることを確認してください。Python とパッケージは Windows 側に用意し、COM ポートと映像デバイス番号は使用する機器に合わせます。`--reset-first` はゲームを起動中の画面から使用します。初回は画面を見ながら確認し、途中で止める場合は Ctrl+C を押してください。
+
+Dev Container の `/home/dev/src` と WSL 側のディレクトリが同じ作業場所か分からない場合は、WSL 側に目印を作り、コンテナから読めるか確認できます。PowerShell で次を実行します。
+
+```powershell
+wsl -d Ubuntu -- bash -c 'echo from-wsl-123 > /home/user/git_wsl/pokemon_automation/.mount-check-wsl'
+```
+
+次に Dev Container のターミナルで確認し、目印を削除します。`from-wsl-123` が表示されれば同じファイルを参照しています。見つからなければパスやマウント設定を確認してください。
+
+```bash
+cat /home/dev/src/.mount-check-wsl
+rm /home/dev/src/.mount-check-wsl
+```
+
+同じディレクトリの場合、コンテナでの編集・Git の更新は Windows から参照するファイルにも反映されます。PC 側と Arduino 側で通信方式が一致するよう、ファームウェアの更新が必要な変更を取り込んだ場合は [書き込み手順](../../docs/windows-arduino-upload.md) に従って更新してください。
+
+## Arduino の通信診断
+
+診断対応ファームウェアを書き込んだ Arduino を通常どおり Switch と SH-U09C に接続し、周回を停止してから Windows の PowerShell で実行します。`COM8` は SH-U09C のポートです。
+
+```powershell
+python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\tools\controller_diagnostics.py" COM8
+```
+
+Arduino 起動後の正常な要求数、破棄した行数、応答の送信試行数、最後に受け付けた時間指定操作のセッション・番号・状態が表示されます。要求数には診断要求も含まれ、応答の送信試行数には今回の診断応答は含まれません。再送はそれぞれ１回ずつ数えます。カウンターは上限で停止し、Arduino を再起動すると消えます。診断要求はセッションや入力状態を変更せず、リースも更新しません。
+
+応答の送信試行数は Arduino が送ろうとした回数であり、PC に届いたことを保証しません。診断コマンドやその応答も通信不良で届かない場合があります。エラーのセッション・番号と最後に受け付けた時間指定操作が一致し、状態が `DONE` なら Arduino は解放の USB 送信成功まで確認していますが、Switch やゲームでの反映は別途確認してください。最後の操作が上書きされた場合や Arduino が再起動した場合は過去の結果を判定できません。
+
+## ボタンを１回だけ操作する
+
+Windows の PowerShell で、現在の Arduino ファームウェアにボタンを１回送れます。周回プログラムを停止してから実行し、`COM8` は SH-U09C のポートに置き換えてください。
+
+```powershell
+python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\tools\send_control.py" COM8 A
+```
+
+末尾を `HOME` や `B`、`UP` などに変えると別の操作を送れます。スティックを上に 500 ms 倒す場合は、末尾を `STICK_UP 500` にします。指定できる操作は `--help` で確認できます。画面が意図しない状態の場合は手動で戻してから実行してください。
+
 ## Windows から操作
 
 Windows に Python を用意し、PowerShell で次を実行します。COM ポートはデバイスマネージャーで SH-U09C のものを確認してください。
