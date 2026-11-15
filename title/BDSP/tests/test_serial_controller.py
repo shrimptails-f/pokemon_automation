@@ -11,6 +11,7 @@ class FakePort:
         self.requests = []
         self.closed = False
         self.drop_set = False
+        self.timed_seen = set()
 
     def write(self, data):
         if data == b'\n':
@@ -18,10 +19,15 @@ class FakePort:
         fields = decode_frame(data).split(',')
         self.requests.append(fields)
         op = fields[3]
-        if op == 'SET' and self.drop_set:
+        if op == 'TIMED':
+            key = tuple(fields)
+            result = 'DONE' if key in self.timed_seen else 'RUNNING'
+            self.timed_seen.add(key)
+        else:
+            result = 'APPLIED' if op == 'SET' else 'ACTIVE'
+        if op == 'TIMED' and self.drop_set:
             self.drop_set = False
             return
-        result = 'APPLIED' if op == 'SET' else 'ACTIVE'
         self.responses.append(encode_frame(','.join(fields[:4] + [result])))
 
     def readline(self):
@@ -41,10 +47,12 @@ def test_press_and_release_and_retry_same_request(monkeypatch):
     with SerialController('COM8') as controller:
         port.drop_set = True
         controller.send('A')
-    sets = [r for r in port.requests if r[3] == 'SET']
-    assert sets[0] == sets[1]
-    assert sets[0][4] == '4'
-    assert sets[2][4] == '0'
+    timed = [r for r in port.requests if r[3] == 'TIMED']
+    assert len(timed) >= 2
+    assert all(r == timed[0] for r in timed)
+    assert timed[0][4] == '4'
+    assert timed[0][10] == '0'
+    assert timed[0][-1] == '150'
     assert port.closed
 
 
@@ -134,5 +142,22 @@ def test_heartbeat_does_not_recover_pressed_state(monkeypatch):
     monkeypatch.setattr(controller.stopped, 'wait', lambda _: False)
     controller._heartbeat()
     assert calls == ['KEEP', 'STATUS']
+    assert controller.failure is not None
+    assert controller.stopped.is_set()
+
+
+def test_heartbeat_does_not_recover_during_timed_operation(monkeypatch):
+    controller = SerialController('COM8')
+    controller.timed_inflight = True
+    calls = []
+
+    def request(command, expected):
+        calls.append(command)
+        raise TimeoutError('lost')
+
+    controller._request = request
+    monkeypatch.setattr(controller.stopped, 'wait', lambda _: False)
+    controller._heartbeat()
+    assert calls == ['KEEP']
     assert controller.failure is not None
     assert controller.stopped.is_set()
