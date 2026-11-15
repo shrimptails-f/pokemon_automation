@@ -101,6 +101,7 @@ async def run(args, token, channel_id, user_id, encounter, reset, run_loop, stop
         if started:
             return
         started = True
+        print("Discord に接続しました。", flush=True)
         try:
             channel = await client.fetch_channel(channel_id)
             thread = await channel.create_thread(name="BDSP 周回状況", type=discord.ChannelType.public_thread)

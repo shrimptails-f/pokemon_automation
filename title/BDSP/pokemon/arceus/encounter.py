@@ -9,7 +9,7 @@ from title.BDSP.domain.result import EncounterResult
 def encounter(controller: Controller, capture: Capture, classify, output, move_ms, a_after,
               delay=4.5, duration=1.5, interval=0.25, *, clock=time.monotonic, sleep=time.sleep):
     capture.read()  # Verify the video before moving.
-    print("映像と Arduino に接続しました。3 秒後に前進します。中止は Ctrl+C。", flush=True)
+    print("映像を確認しました。3 秒後に前進します。中止は Ctrl+C。", flush=True)
     sleep(3)
     controller.send(f"STICK_UP {move_ms}")
     deadline = clock() + a_after
