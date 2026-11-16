@@ -27,7 +27,7 @@ def test_read_diagnostics_does_not_create_session_or_operate_controller():
     assert read_diagnostics(port) == (17, 2, 16, 3, 4, 5, 6, 7, 42, 9, 'DONE')
     assert len(port.requests) == 1
     assert port.requests[0][3] == 'DIAG'
-    assert port.frames[0].startswith(b'\n2,')
+    assert port.frames[0].startswith(b'2,')
 
 
 def test_read_diagnostics_rejects_invalid_snapshot():

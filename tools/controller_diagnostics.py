@@ -9,28 +9,52 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from automation.adapters.controller_protocol import decode_frame, encode_frame
 
 
-def read_diagnostics(port, *, timeout=0.5, attempts=3):
-    session = secrets.randbits(32) or 1
-    request = b"\n" + encode_frame(f"2,{session},0,DIAG")
-    for _ in range(attempts):
+def exchange(port, command, *, timeout=0.5, attempts=3, session=None, sequence=0):
+    """Match a response; keep partial reads until LF and retry the same request."""
+    session = session or secrets.randbits(32) or 1
+    operation = command.split(",", 1)[0]
+    request = encode_frame(f"2,{session},{sequence},{command}")
+    pending = bytearray()
+    discarding = False
+    for attempt in range(1, attempts + 1):
+        if hasattr(port, "event"):
+            port.event("request", operation=operation, sequence=sequence, attempt=attempt)
         port.write(request)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             port.timeout = min(0.15, max(0, deadline - time.monotonic()))
             raw = port.readline()
-            try:
-                fields = decode_frame(raw).split(",")
-            except ValueError:
-                continue
-            if len(fields) != 5 or fields[:4] != ["2", str(session), "0", "DIAG"]:
-                continue
-            parts = fields[4].split(":")
-            if len(parts) != 11 or any(not x.isascii() or not x.isdigit() for x in parts[:10]):
-                raise ValueError("診断応答の形式が不正です")
-            if parts[10] not in {"NONE", "RUNNING", "DONE", "USB", "EXPIRED"}:
-                raise ValueError("診断結果が不正です")
-            return tuple(map(int, parts[:10])) + (parts[10],)
-    raise TimeoutError("診断応答がありません。配線・電源・ファームウェアを確認してください")
+            for byte in raw:
+                if byte == 10:
+                    frame = bytes(pending) + b"\n"
+                    pending.clear()
+                    if discarding:
+                        discarding = False
+                        continue
+                    try:
+                        fields = decode_frame(frame).split(",")
+                    except ValueError:
+                        continue
+                    if len(fields) == 5 and fields[:4] == ["2", str(session), str(sequence), operation]:
+                        return fields[4]
+                elif not discarding:
+                    pending.append(byte)
+                    if len(pending) >= 160:
+                        pending.clear()
+                        discarding = True
+        if hasattr(port, "event"):
+            port.event("timeout", operation=operation, sequence=sequence, attempt=attempt)
+    raise TimeoutError(f"{operation} の応答がありません（送信 {attempts} 回）")
+
+
+def read_diagnostics(port, *, timeout=0.5, attempts=3):
+    result = exchange(port, "DIAG", timeout=timeout, attempts=attempts)
+    parts = result.split(":")
+    if len(parts) != 11 or any(not x.isascii() or not x.isdigit() for x in parts[:10]):
+        raise ValueError("診断応答の形式が不正です")
+    if parts[10] not in {"NONE", "RUNNING", "DONE", "USB", "EXPIRED"}:
+        raise ValueError("診断結果が不正です")
+    return tuple(map(int, parts[:10])) + (parts[10],)
 
 
 def main():

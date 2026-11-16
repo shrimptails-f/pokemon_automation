@@ -34,7 +34,9 @@ struct SwitchJoystick_ {
 void request(const char* payload) {
   snprintf(line, sizeof(line), "%s,%04X", payload, crc(payload));
   Serial1.output.clear();
+  length = strlen(line);
   command();
+  length = 0;
 }
 std::string frame(const char* payload) {
   char encoded[180];
@@ -80,12 +82,16 @@ int main() {
   Serial1.output.clear();
   auto repliesAfterDiag = diagReplies;
   auto rejectedEcho = diagRejected;
+  length = strlen(line);
   command();
+  length = 0;
   assert(Serial1.output.empty() && diagReplies == repliesAfterDiag);
   assert(diagRejected == rejectedEcho + 1);
   strcpy(line, "bad,0000");
   auto rejectedBefore = diagRejected;
+  length = strlen(line);
   command();
+  length = 0;
   assert(diagRejected == rejectedBefore + 1);
   diagReceived = 0xffffffffUL;
   increment(diagReceived);
@@ -125,4 +131,60 @@ int main() {
   receive(frame("2,77,4,STATUS"));
   assert(Serial1.output.find("2,77,4,STATUS,") != std::string::npos);
   assert(diagReceived == 4);
+
+  // Capture the raw frame before comma tokenization, including embedded NUL.
+  std::string corrupt = frame("2,77,5,STATUS");
+  corrupt[7] = '\0';
+  auto idBefore = rejectedId;
+  Serial1.output.clear();
+  receive(corrupt);
+  assert(Serial1.output.empty() && rejectedId == idBefore + 1);
+  assert(rejectedLength == corrupt.size()-1);
+  assert(!memcmp(rejectedBytes, corrupt.data(), rejectedLength));
+  auto savedId = rejectedId;
+  request("2,77,6,DUMP,0,0");
+  assert(Serial1.output.find(",DUMP,") != std::string::npos);
+  assert(Serial1.output.find("00") != std::string::npos);
+  assert(rejectedId == savedId);
+  std::string dumpEcho = Serial1.output;
+  Serial1.output.clear(); receive(dumpEcho);
+  assert(Serial1.output.empty());
+
+  // A maximum-size captured line can be reconstructed across five chunks.
+  std::string longBad = "2," + std::string(152, 'A') + ",0000\n";
+  receive(longBad);
+  assert(rejectedLength == 159);
+  std::string reconstructed;
+  savedId = rejectedId;
+  for (unsigned offset=0; offset<159; offset+=32) {
+    char payload[80];
+    snprintf(payload,sizeof(payload),"2,4294967295,4294967295,DUMP,%lu,%u",(unsigned long)savedId,offset);
+    request(payload);
+    assert(Serial1.output.size() <= 160);
+    size_t begin = Serial1.output.find(",DUMP,") + 6;
+    for (int i=0; i<3; ++i) begin=Serial1.output.find(':',begin)+1;
+    size_t end=Serial1.output.find(',',begin);
+    for (size_t i=begin; i<end; i+=2) reconstructed += (char)strtoul(Serial1.output.substr(i,2).c_str(),NULL,16);
+  }
+  assert(reconstructed == longBad.substr(0,159));
+  receive(corrupt);
+  char stale[80];
+  snprintf(stale,sizeof(stale),"2,77,10,DUMP,%lu,32",(unsigned long)savedId);
+  request(stale);
+  assert(Serial1.output.find(",DUMP,STALE,") != std::string::npos);
+  request("2,77,11,DUMP,0,1");
+  assert(Serial1.output.find(",DUMP,STALE,") != std::string::npos);
+  savedId = rejectedId;
+  // CRC-valid embedded NUL is malformed and cannot execute the prefix command.
+  std::string binaryPayload("2,77,12,STATUS\0ignored", 22);
+  char checksum[8];
+  snprintf(checksum,sizeof(checksum),",%04X\n",crcBytes(binaryPayload.data(),binaryPayload.size()));
+  Serial1.output.clear(); receive(binaryPayload + checksum);
+  assert(Serial1.output.empty() && rejectedId == savedId);
+  // Saturation freezes the record rather than reusing its identifier.
+  rejectedId = 0xffffffffUL;
+  std::string oldRecord((char*)rejectedBytes,rejectedLength);
+  receive(longBad);
+  assert(rejectedId == 0xffffffffUL);
+  assert(std::string((char*)rejectedBytes,rejectedLength) == oldRecord);
 }
