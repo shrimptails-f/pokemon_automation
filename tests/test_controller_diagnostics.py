@@ -33,3 +33,14 @@ def test_read_diagnostics_does_not_create_session_or_operate_controller():
 def test_read_diagnostics_rejects_invalid_snapshot():
     with pytest.raises(ValueError, match='形式'):
         read_diagnostics(Port('bad'))
+
+
+def test_diagnostics_does_not_change_port_timeout():
+    class FixedPort(Port):
+        def __setattr__(self, name, value):
+            if name in {'timeout', 'write_timeout'}:
+                raise AssertionError('通信中にポート設定を変更した')
+            super().__setattr__(name, value)
+
+    port = FixedPort('17:2:16:3:4:5:6:7:42:9:DONE')
+    assert read_diagnostics(port)[0] == 17

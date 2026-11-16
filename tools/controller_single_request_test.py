@@ -62,7 +62,7 @@ def main():
         # Exclusive creation prevents accidental loss of an earlier trace.
         with args.log.open('x', encoding='utf-8') as log:
             print(f'ログ: {args.log.resolve()}', flush=True)
-            with serial.Serial(args.port, 115200, timeout=0.15, write_timeout=0.5) as serial_port:
+            with serial.Serial(args.port, 115200, timeout=0.05, write_timeout=0.5) as serial_port:
                 port = LoggedPort(serial_port, log)
                 port.event('start', port=args.port, baudrate=115200, rounds=args.rounds, wait=args.wait)
                 port.write(b'\n')
