@@ -19,6 +19,9 @@ uint8_t timedRelease[7];
 uint32_t diagReceived = 0, diagRejected = 0, diagReplies = 0;
 uint32_t diagCrc = 0, diagMalformed = 0, diagTimeout = 0, diagOverflow = 0, diagNoise = 0;
 uint32_t diagTimedSession = 0, diagTimedSequence = 0;
+// Last CRC failure, excluding LF. Explicit length preserves embedded NUL bytes.
+uint8_t rejectedBytes[160], rejectedLength = 0;
+uint32_t rejectedId = 0;
 uint8_t diagTimedResult = 0;  // 0 none, 1 running, 2 done, 3 USB error, 4 expired
 void increment(uint32_t &value) { if (value != 0xffffffffUL) ++value; }
 void rejectMalformed() { increment(diagRejected); increment(diagMalformed); }
@@ -32,10 +35,18 @@ const char *timedResult() {
   }
 }
 
-uint16_t crc(const char *s) {
+uint16_t crcBytes(const char *s, size_t size) {
   uint16_t c = 0xffff;
-  while (*s) { c ^= (uint16_t)(uint8_t)*s++ << 8; for (uint8_t i=0;i<8;i++) c = (c & 0x8000) ? (c << 1) ^ 0x1021 : c << 1; }
+  while (size--) { c ^= (uint16_t)(uint8_t)*s++ << 8; for (uint8_t i=0;i<8;i++) c = (c & 0x8000) ? (c << 1) ^ 0x1021 : c << 1; }
   return c;
+}
+uint16_t crc(const char *s) { return crcBytes(s, strlen(s)); }
+void captureCrcFailure() {
+  // Never reuse an identity: freeze the last record if the counter saturates.
+  if (rejectedId == 0xffffffffUL) return;
+  ++rejectedId;
+  rejectedLength = length;
+  memcpy(rejectedBytes, line, length);
 }
 void reply(const char *s) {
   increment(diagReplies);
@@ -50,11 +61,34 @@ bool number(const char *s, uint32_t max, uint32_t &out) {
   uint32_t n=0; while (*s) { if (*s<'0'||*s>'9') return false; uint8_t d=*s++-'0'; if (n > max/10 || (n == max/10 && d > max%10)) return false; n=n*10+d; }
   out=n; return true;
 }
+void dumpReply(uint32_t sid, uint32_t seq, const char *idText, const char *offsetText) {
+  uint32_t id, offset;
+  char response[128];
+  const char *error = NULL;
+  if (!number(idText, 0xffffffffUL, id) || !number(offsetText, 159, offset)) error="VALUE";
+  else if (!rejectedId) error="NONE";
+  else if ((id == 0 && offset != 0) || (id != 0 && id != rejectedId)) error="STALE";
+  else if (offset >= rejectedLength) error="RANGE";
+  if (error) snprintf(response,sizeof(response),"2,%lu,%lu,DUMP,%s",sid,seq,error);
+  else {
+    size_t used = snprintf(response,sizeof(response),"2,%lu,%lu,DUMP,%lu:%u:%lu:",sid,seq,rejectedId,rejectedLength,offset);
+    const char hex[]="0123456789ABCDEF";
+    for (uint8_t i=0; i<32 && offset+i<rejectedLength; ++i) {
+      uint8_t b=rejectedBytes[offset+i]; response[used++]=hex[b>>4]; response[used++]=hex[b&15];
+    }
+    response[used]='\0';
+  }
+  reply(response);
+}
 void command() {
-  char *sum = strrchr(line, ',');
-  if (!sum || strlen(sum+1)!=4) { rejectMalformed(); return; }
-  for (char *p=sum+1; *p; ++p) if (!((*p>='0'&&*p<='9')||(*p>='A'&&*p<='F'))) { rejectMalformed(); return; }
-  uint16_t received = strtoul(sum+1, NULL, 16); *sum='\0'; if (crc(line)!=received) { increment(diagRejected); increment(diagCrc); return; }
+  // Locate the checksum using the received length, not C-string termination.
+  char *sum = length >= 5 && line[length-5] == ',' ? line+length-5 : NULL;
+  if (!sum) { rejectMalformed(); return; }
+  for (char *p=sum+1; p<line+length; ++p) if (!((*p>='0'&&*p<='9')||(*p>='A'&&*p<='F'))) { rejectMalformed(); return; }
+  uint16_t received = strtoul(sum+1, NULL, 16);
+  if (crcBytes(line, sum-line)!=received) { captureCrcFailure(); increment(diagRejected); increment(diagCrc); return; }
+  if (memchr(line, '\0', length)) { rejectMalformed(); return; }
+  *sum='\0';
   char *parts[17]; uint8_t count=0; char *p=line;
   while (p && count<17) { parts[count++]=p; char *comma=strchr(p, ','); if (comma) { *comma='\0'; p=comma+1; } else p=NULL; }
   if (p || count<4 || strcmp(parts[0],"2")) { rejectMalformed(); return; }
@@ -63,10 +97,12 @@ void command() {
   // a malformed/unknown command: answering it can create an endless loop.
   bool validShape = (count==4 && (!strcmp(parts[3],"DIAG") || !strcmp(parts[3],"STATUS") ||
                      !strcmp(parts[3],"HELLO") || !strcmp(parts[3],"KEEP"))) ||
+                    (count==6 && !strcmp(parts[3],"DUMP")) ||
                     (count==10 && !strcmp(parts[3],"SET")) ||
                     (count==17 && !strcmp(parts[3],"TIMED"));
   if (!validShape) { rejectMalformed(); return; }
   increment(diagReceived);
+  if (!strcmp(parts[3],"DUMP")) { dumpReply(sid,seq,parts[4],parts[5]); return; }
   char response[160], diagnostic[120]; const char *result="ERROR";
   if (count==4 && !strcmp(parts[3],"DIAG")) {
     // The snapshot includes this request, but not its own reply.
