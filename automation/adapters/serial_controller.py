@@ -59,7 +59,7 @@ class SerialController:
             if self.failure:
                 raise RuntimeError("コントローラー通信が停止しました") from self.failure
             seq = self.sequence
-            frame = encode_frame(f"2,{self.session},{seq},{command}")
+            frame = b"\n" + encode_frame(f"2,{self.session},{seq},{command}")
             operation = command.split(",", 1)[0]
             empty_reads = 0
             invalid_reads = 0

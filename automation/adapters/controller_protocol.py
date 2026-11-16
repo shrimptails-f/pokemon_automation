@@ -6,7 +6,7 @@ four hexadecimal CRC digits and the trailing newline.
 import binascii
 import re
 
-MAX_LINE = 128
+MAX_LINE = 160
 _CRC = re.compile(rb"[0-9A-F]{4}\Z")
 
 
