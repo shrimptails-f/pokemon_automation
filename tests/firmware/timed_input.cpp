@@ -10,11 +10,13 @@ unsigned long currentTime = 0;
 unsigned long millis() { return currentTime; }
 struct SerialStub {
   std::string output;
+  std::string input;
+  size_t position = 0;
   void begin(int) {}
   void print(const char* s) { output += s; }
   void print(char c) { output += c; }
-  int available() { return 0; }
-  char read() { return 0; }
+  int available() { return position < input.size(); }
+  char read() { return input[position++]; }
 } Serial1;
 struct SwitchJoystick_ {
   std::vector<std::vector<uint8_t>> states;
@@ -33,6 +35,15 @@ void request(const char* payload) {
   snprintf(line, sizeof(line), "%s,%04X", payload, crc(payload));
   Serial1.output.clear();
   command();
+}
+std::string frame(const char* payload) {
+  char encoded[180];
+  snprintf(encoded, sizeof(encoded), "%s,%04X\n", payload, crc(payload));
+  return encoded;
+}
+void receive(const std::string &bytes, unsigned long interval=1) {
+  Serial1.input += bytes;
+  while (Serial1.available()) { loop(); currentTime += interval; }
 }
 int main() {
   request("2,1,0,HELLO");
@@ -55,4 +66,61 @@ int main() {
   request("2,1,2,TIMED,4,8,128,128,128,128,0,8,128,128,128,128,3000");
   currentTime += 2001; loop();
   assert(expired && !active && !timedRunning && pad.states.back()[0] == 0);
+  assert(diagTimedResult == 4 && diagTimedSequence == 2);
+  auto receivedBefore = diagReceived, repliesBefore = diagReplies;
+  request("2,99,0,DIAG");
+  assert(Serial1.output.find("DIAG,") != std::string::npos);
+  assert(Serial1.output.find(":1:2:EXPIRED") != std::string::npos);
+  assert(diagReceived == receivedBefore + 1 && diagReplies == repliesBefore + 1);
+  // An echoed reply is never accepted as a request or answered again.
+  std::string echoed = Serial1.output;
+  assert(!echoed.empty() && echoed.back() == '\n');
+  echoed.pop_back();
+  snprintf(line, sizeof(line), "%s", echoed.c_str());
+  Serial1.output.clear();
+  auto repliesAfterDiag = diagReplies;
+  auto rejectedEcho = diagRejected;
+  command();
+  assert(Serial1.output.empty() && diagReplies == repliesAfterDiag);
+  assert(diagRejected == rejectedEcho + 1);
+  strcpy(line, "bad,0000");
+  auto rejectedBefore = diagRejected;
+  command();
+  assert(diagRejected == rejectedBefore + 1);
+  diagReceived = 0xffffffffUL;
+  increment(diagReceived);
+  assert(diagReceived == 0xffffffffUL);
+
+  // Feed the real loop one byte at a time, as Serial1 does on hardware.
+  diagReceived = diagRejected = diagCrc = diagMalformed = diagTimeout = diagOverflow = 0;
+  Serial1.output.clear();
+  receive("x" + frame("2,77,0,STATUS"));
+  assert(Serial1.output.find("2,77,0,STATUS,") != std::string::npos);
+  assert(diagReceived == 1 && diagMalformed == 1);
+
+  // A partial line expires without consuming the newline of the next request.
+  Serial1.output.clear();
+  receive("2");
+  currentTime += LINE_MS;
+  loop();
+  receive(frame("2,77,1,STATUS"));
+  assert(Serial1.output.find("2,77,1,STATUS,") != std::string::npos);
+  assert(diagReceived == 2 && diagTimeout == 1);
+
+  // A normally split request remains valid, while a bad CRC is counted alone.
+  Serial1.output.clear();
+  receive(frame("2,77,2,STATUS"), 10);
+  assert(diagReceived == 3 && diagTimeout == 1);
+  std::string badCrc = frame("2,77,3,STATUS");
+  badCrc[badCrc.size()-2] = '0';
+  receive(badCrc);
+  assert(diagReceived == 3 && diagCrc == 1);
+
+  // An overlong line is discarded through its newline; the next frame recovers.
+  receive("2," + std::string(158, 'x') + "\n");
+  assert(diagOverflow == 1);
+  Serial1.output.clear();
+  receive(frame("2,77,4,STATUS"));
+  assert(Serial1.output.find("2,77,4,STATUS,") != std::string::npos);
+  assert(diagReceived == 4);
 }

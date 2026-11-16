@@ -14,6 +14,22 @@ char lastOperation[6] = "";
 bool timedRunning = false;
 unsigned long timedStarted = 0, timedDuration = 0;
 uint8_t timedRelease[7];
+// Fixed-size, saturating diagnostics; reset only on Arduino restart.
+uint32_t diagReceived = 0, diagRejected = 0, diagReplies = 0;
+uint32_t diagCrc = 0, diagMalformed = 0, diagTimeout = 0, diagOverflow = 0;
+uint32_t diagTimedSession = 0, diagTimedSequence = 0;
+uint8_t diagTimedResult = 0;  // 0 none, 1 running, 2 done, 3 USB error, 4 expired
+void increment(uint32_t &value) { if (value != 0xffffffffUL) ++value; }
+void rejectMalformed() { increment(diagRejected); increment(diagMalformed); }
+const char *timedResult() {
+  switch (diagTimedResult) {
+    case 1: return "RUNNING";
+    case 2: return "DONE";
+    case 3: return "USB";
+    case 4: return "EXPIRED";
+    default: return "NONE";
+  }
+}
 
 uint16_t crc(const char *s) {
   uint16_t c = 0xffff;
@@ -21,6 +37,7 @@ uint16_t crc(const char *s) {
   return c;
 }
 void reply(const char *s) {
+  increment(diagReplies);
   char suffix[7]; snprintf(suffix, sizeof(suffix), ",%04X", crc(s));
   Serial1.print(s); Serial1.print(suffix); Serial1.print('\n');
 }
@@ -34,14 +51,30 @@ bool number(const char *s, uint32_t max, uint32_t &out) {
 }
 void command() {
   char *sum = strrchr(line, ',');
-  if (!sum || strlen(sum+1)!=4) return;
-  for (char *p=sum+1; *p; ++p) if (!((*p>='0'&&*p<='9')||(*p>='A'&&*p<='F'))) return;
-  uint16_t received = strtoul(sum+1, NULL, 16); *sum='\0'; if (crc(line)!=received) return;
+  if (!sum || strlen(sum+1)!=4) { rejectMalformed(); return; }
+  for (char *p=sum+1; *p; ++p) if (!((*p>='0'&&*p<='9')||(*p>='A'&&*p<='F'))) { rejectMalformed(); return; }
+  uint16_t received = strtoul(sum+1, NULL, 16); *sum='\0'; if (crc(line)!=received) { increment(diagRejected); increment(diagCrc); return; }
   char *parts[17]; uint8_t count=0; char *p=line;
   while (p && count<17) { parts[count++]=p; char *comma=strchr(p, ','); if (comma) { *comma='\0'; p=comma+1; } else p=NULL; }
-  if (p || count<3 || strcmp(parts[0],"2")) return;
-  uint32_t sid, seq; if (!number(parts[1], 4294967295UL, sid) || !sid || !number(parts[2], 4294967295UL, seq)) return;
-  char response[80]; const char *result="ERROR";
+  if (p || count<4 || strcmp(parts[0],"2")) { rejectMalformed(); return; }
+  uint32_t sid, seq; if (!number(parts[1], 4294967295UL, sid) || !sid || !number(parts[2], 4294967295UL, seq)) { rejectMalformed(); return; }
+  // Responses may be echoed back into Serial1. Never answer a response or
+  // a malformed/unknown command: answering it can create an endless loop.
+  bool validShape = (count==4 && (!strcmp(parts[3],"DIAG") || !strcmp(parts[3],"STATUS") ||
+                     !strcmp(parts[3],"HELLO") || !strcmp(parts[3],"KEEP"))) ||
+                    (count==10 && !strcmp(parts[3],"SET")) ||
+                    (count==17 && !strcmp(parts[3],"TIMED"));
+  if (!validShape) { rejectMalformed(); return; }
+  increment(diagReceived);
+  char response[128], diagnostic[96]; const char *result="ERROR";
+  if (count==4 && !strcmp(parts[3],"DIAG")) {
+    // The snapshot includes this request, but not its own reply.
+    snprintf(diagnostic,sizeof(diagnostic),"%lu:%lu:%lu:%lu:%lu:%lu:%lu:%lu:%lu:%s",
+             diagReceived,diagRejected,diagReplies,diagCrc,diagMalformed,diagTimeout,diagOverflow,
+             diagTimedSession,diagTimedSequence,timedResult());
+    snprintf(response,sizeof(response),"2,%lu,%lu,DIAG,%s",sid,seq,diagnostic);
+    reply(response); return;
+  }
   if (count==4 && !strcmp(parts[3],"STATUS")) result=active ? "ACTIVE" : (expired ? "EXPIRED" : "READY");
   else if (count==4 && !strcmp(parts[3],"HELLO")) {
     if (active && sid==session) result="ACTIVE";
@@ -76,6 +109,7 @@ void command() {
           timedRelease[0]=values[6]; timedRelease[1]=values[6]>>8;
           for (uint8_t i=1;i<6;i++) timedRelease[i+1]=values[i+6];
           timedDuration=values[12]; timedStarted=millis(); timedRunning=true; result="RUNNING";
+          diagTimedSession=sid; diagTimedSequence=seq; diagTimedResult=1;
         } else result="APPLIED";
       } else { neutral(); retired=session; active=false; expired=true; timedRunning=false; result="USB"; }
     }
@@ -85,15 +119,29 @@ void command() {
 void setup() { Serial1.begin(115200); pad.begin(false); neutral(); }
 void loop() {
   unsigned long now=millis();
-  if (active && now-renewed>=LEASE_MS) { neutral(); retired=session; active=false; expired=true; timedRunning=false; }
+  if (active && now-renewed>=LEASE_MS) { if (timedRunning) diagTimedResult=4; neutral(); retired=session; active=false; expired=true; timedRunning=false; }
   if (active && timedRunning && now-timedStarted>=timedDuration) {
-    if (pad.sendState(timedRelease) != 8) { neutral(); retired=session; active=false; expired=true; }
+    if (pad.sendState(timedRelease) != 8) { diagTimedResult=3; neutral(); retired=session; active=false; expired=true; }
+    else diagTimedResult=2;
     timedRunning=false;
   }
-  if (length && now-started>=LINE_MS) { length=0; discard=true; }
+  // A timed-out prefix is already irrecoverable.  Reset immediately so the
+  // following request need not donate its terminating newline to the discard.
+  if (length && now-started>=LINE_MS) { increment(diagRejected); increment(diagTimeout); length=0; }
   if (Serial1.available()) {
     char c=Serial1.read();
     if (c=='\n') { if (!discard && length) { line[length]='\0'; command(); } length=0; discard=false; }
-    else if (!discard) { if (!length) started=millis(); if (length<sizeof(line)-1) line[length++]=c; else { length=0; discard=true; } }
+    else if (!discard) {
+      // Seek a protocol-version prefix while idle.  This resynchronizes after
+      // bytes that precede a complete request, without scanning inside one.
+      if (!length) {
+        if (c=='2') { line[length++]=c; started=millis(); }
+        else rejectMalformed();
+      } else if (length==1 && line[0]=='2' && c!=',') {
+        rejectMalformed(); length=0;
+        if (c=='2') { line[length++]=c; started=millis(); }
+      } else if (length<sizeof(line)-1) line[length++]=c;
+      else { increment(diagRejected); increment(diagOverflow); length=0; discard=true; }
+    }
   }
 }
