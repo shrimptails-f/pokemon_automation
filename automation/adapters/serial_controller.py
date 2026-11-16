@@ -59,7 +59,7 @@ class SerialController:
             if self.failure:
                 raise RuntimeError("コントローラー通信が停止しました") from self.failure
             seq = self.sequence
-            frame = encode_frame(f"2,{self.session},{seq},{command}")
+            frame = b"\n" + encode_frame(f"2,{self.session},{seq},{command}")
             for _ in range(ATTEMPTS):
                 deadline = time.monotonic() + RESPONSE_TIMEOUT
                 self.port.write_timeout = RESPONSE_TIMEOUT

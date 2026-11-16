@@ -9,6 +9,7 @@ class FakePort:
     def __init__(self):
         self.responses = []
         self.requests = []
+        self.raw_requests = []
         self.closed = False
         self.drop_set = False
         self.timed_seen = set()
@@ -16,7 +17,8 @@ class FakePort:
     def write(self, data):
         if data == b'\n':
             return
-        fields = decode_frame(data).split(',')
+        self.raw_requests.append(data)
+        fields = decode_frame(data.lstrip(b'\n')).split(',')
         self.requests.append(fields)
         op = fields[3]
         if op == 'TIMED':
@@ -53,6 +55,7 @@ def test_press_and_release_and_retry_same_request(monkeypatch):
     assert timed[0][4] == '4'
     assert timed[0][10] == '0'
     assert timed[0][-1] == '150'
+    assert all(frame.startswith(b'\n2,') for frame in port.raw_requests)
     assert port.closed
 
 
