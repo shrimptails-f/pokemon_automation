@@ -22,7 +22,6 @@ def exchange(port, command, *, timeout=0.5, attempts=3, session=None, sequence=0
         port.write(request)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            port.timeout = min(0.15, max(0, deadline - time.monotonic()))
             raw = port.readline()
             for byte in raw:
                 if byte == 10:
@@ -63,7 +62,7 @@ def main():
     args = parser.parse_args()
     try:
         import serial
-        with serial.Serial(args.port, 115200, timeout=0.15, write_timeout=0.5) as port:
+        with serial.Serial(args.port, 115200, timeout=0.05, write_timeout=0.5) as port:
             port.write(b"\n")
             port.reset_input_buffer()
             received, rejected, replies, crc, malformed, timeout, overflow, noise, session, sequence, result = read_diagnostics(port)

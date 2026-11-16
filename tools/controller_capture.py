@@ -15,14 +15,6 @@ class LoggedPort:
         self.log = log
         self.sent = deque(maxlen=256)
 
-    @property
-    def timeout(self):
-        return self.port.timeout
-
-    @timeout.setter
-    def timeout(self, value):
-        self.port.timeout = value
-
     def event(self, kind, **fields):
         record = dict(time=datetime.now(timezone.utc).isoformat(), monotonic=time.monotonic(), kind=kind, **fields)
         self.log.write(json.dumps(record, ensure_ascii=False) + '\n')

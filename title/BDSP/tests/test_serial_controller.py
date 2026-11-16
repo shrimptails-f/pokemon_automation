@@ -177,12 +177,31 @@ def test_timeout_reports_invalid_and_unmatched_responses(monkeypatch, caplog):
     ticks = itertools.count()
     monkeypatch.setattr('automation.adapters.serial_controller.time.monotonic', lambda: next(ticks) * 0.1)
 
-    with pytest.raises(TimeoutError, match='操作=TIMED.*番号=12.*送信=3回'):
+    with pytest.raises(TimeoutError, match='操作=TIMED.*番号=12.*送信=2回'):
         controller._request('TIMED,4,8,128,128,128,128,0,8,128,128,128,128,150', None)
 
     assert 'ポート=COM8' in caplog.text
     assert '不正=1' in caplog.text
     assert '別応答=1' in caplog.text
     assert "corrupt" in caplog.text
-    assert len(controller.port.requests) == 3
+    assert len(controller.port.requests) == 2
     assert all(request == controller.port.requests[0] for request in controller.port.requests)
+
+
+def test_request_keeps_serial_settings_and_joins_partial_response():
+    class FixedPort(FakePort):
+        def __setattr__(self, name, value):
+            if name in {'timeout', 'write_timeout'}:
+                raise AssertionError('通信中にポート設定を変更した')
+            super().__setattr__(name, value)
+
+        def readline(self):
+            raw = super().readline()
+            if len(raw) > 3:
+                self.responses.insert(0, raw[3:])
+                return raw[:3]
+            return raw
+
+    controller = SerialController('COM8')
+    controller.port = FixedPort()
+    assert controller._request('HELLO', 'ACTIVE') == 'ACTIVE'

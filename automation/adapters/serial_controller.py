@@ -10,13 +10,15 @@ logger = logging.getLogger(__name__)
 BUTTONS = {name: bit for bit, name in enumerate(("Y", "B", "A", "X", "L", "R", "ZL", "ZR", "MINUS", "PLUS", "LSTICK", "RSTICK", "HOME", "CAPTURE"))}
 HATS = {"UP": 0, "RIGHT": 2, "DOWN": 4, "LEFT": 6}
 NEUTRAL = (0, 8, 128, 128, 128, 128)
-RESPONSE_TIMEOUT = 0.35
-ATTEMPTS = 3
+RESPONSE_TIMEOUT = 0.7
+READ_TIMEOUT = 0.05
+WRITE_TIMEOUT = 0.5
+ATTEMPTS = 2
 HEARTBEAT_INTERVAL = 0.4
 LEASE_SECONDS = 2.0
 RECOVERY_ATTEMPTS = 6
 RECOVERY_INTERVAL = 0.5
-assert LEASE_SECONDS > HEARTBEAT_INTERVAL + RESPONSE_TIMEOUT * ATTEMPTS
+assert LEASE_SECONDS > HEARTBEAT_INTERVAL + (RESPONSE_TIMEOUT + READ_TIMEOUT) * ATTEMPTS
 assert RECOVERY_INTERVAL * (RECOVERY_ATTEMPTS - 1) > LEASE_SECONDS
 
 
@@ -41,7 +43,7 @@ class SerialController:
 
     def __enter__(self):
         import serial
-        self.port = serial.Serial(self.port_name, 115200, timeout=0.15, write_timeout=0.5)
+        self.port = serial.Serial(self.port_name, 115200, timeout=READ_TIMEOUT, write_timeout=WRITE_TIMEOUT)
         try:
             self.port.write(b"\n")
             time.sleep(0.5)
@@ -66,27 +68,33 @@ class SerialController:
             mismatch_reads = 0
             samples = []
             started = time.monotonic()
+            pending = bytearray()
             for attempt in range(1, ATTEMPTS + 1):
                 deadline = time.monotonic() + RESPONSE_TIMEOUT
-                self.port.write_timeout = RESPONSE_TIMEOUT
                 self.port.write(frame)
                 while time.monotonic() < deadline:
-                    self.port.timeout = min(0.15, max(0, deadline - time.monotonic()))
                     raw = self.port.readline()
                     if not raw:
                         empty_reads += 1
                         continue
+                    pending.extend(raw)
+                    if not raw.endswith(b"\n"):
+                        if len(pending) >= 160:
+                            pending.clear()
+                        continue
+                    frame_bytes = bytes(pending)
+                    pending.clear()
                     try:
-                        fields = decode_frame(raw).split(",")
+                        fields = decode_frame(frame_bytes).split(",")
                     except ValueError as exc:
                         invalid_reads += 1
                         if len(samples) < 3:
-                            samples.append(f"不正({exc}): {raw[:96]!r}")
+                            samples.append(f"不正({exc}): {frame_bytes[:96]!r}")
                         continue
                     if len(fields) != 5 or fields[:4] != ["2", str(self.session), str(seq), operation]:
                         mismatch_reads += 1
                         if len(samples) < 3:
-                            samples.append(f"別の応答: {raw[:96]!r}")
+                            samples.append(f"別の応答: {frame_bytes[:96]!r}")
                         continue
                     if expected is not None and fields[4] != expected:
                         raise ProtocolError(fields[4])
@@ -146,7 +154,7 @@ class SerialController:
                     try:
                         import serial
                         self.port.close()
-                        self.port = serial.Serial(self.port_name, 115200, timeout=0.15, write_timeout=0.5)
+                        self.port = serial.Serial(self.port_name, 115200, timeout=READ_TIMEOUT, write_timeout=WRITE_TIMEOUT)
                         self.port.write(b"\n")
                         self.port.reset_input_buffer()
                     except OSError as reopen_error:
