@@ -164,3 +164,22 @@ def test_heartbeat_does_not_recover_during_timed_operation(monkeypatch):
     assert calls == ['KEEP']
     assert controller.failure is not None
     assert controller.stopped.is_set()
+
+
+def test_request_keeps_serial_settings_and_joins_partial_response():
+    class FixedPort(FakePort):
+        def __setattr__(self, name, value):
+            if name in {'timeout', 'write_timeout'}:
+                raise AssertionError('通信中にポート設定を変更した')
+            super().__setattr__(name, value)
+
+        def readline(self):
+            raw = super().readline()
+            if len(raw) > 3:
+                self.responses.insert(0, raw[3:])
+                return raw[:3]
+            return raw
+
+    controller = SerialController('COM8')
+    controller.port = FixedPort()
+    assert controller._request('HELLO', 'ACTIVE') == 'ACTIVE'

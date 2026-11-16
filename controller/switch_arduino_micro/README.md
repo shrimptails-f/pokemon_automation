@@ -94,6 +94,10 @@ powercfg /q SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-47
 
 再び Arduino で操作するときは、上の「Arduino で操作するとき」の手順を実行します。
 
+## 通信不良の診断
+
+CRC 不一致が残る場合は、[受信内容の採取手順](../../docs/controller-rejected-frame-diagnostics.md)で、Arduino が保存した行と PC の送信履歴を比較できます。
+
 ## ファームウェア
 
 Dev Container 内で `./controller/switch_arduino_micro/build.sh` を実行するとコンパイルできます。Windows からの書き込みは [書き込み手順](../../docs/windows-arduino-upload.md) を参照してください。
