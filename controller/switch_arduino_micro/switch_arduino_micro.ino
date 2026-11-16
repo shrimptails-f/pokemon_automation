@@ -5,6 +5,7 @@
 // Lease and partial-line limits use unsigned elapsed time to tolerate millis wrap.
 SwitchJoystick_ pad;
 char line[160]; uint8_t length = 0; bool discard = false;
+unsigned long discardedAt = 0;
 unsigned long started = 0, renewed = 0;
 const unsigned long LEASE_MS = 2000, LINE_MS = 500;
 uint32_t session = 0, retired = 0, sequence = 0;
@@ -16,7 +17,7 @@ unsigned long timedStarted = 0, timedDuration = 0;
 uint8_t timedRelease[7];
 // Fixed-size, saturating diagnostics; reset only on Arduino restart.
 uint32_t diagReceived = 0, diagRejected = 0, diagReplies = 0;
-uint32_t diagCrc = 0, diagMalformed = 0, diagTimeout = 0, diagOverflow = 0;
+uint32_t diagCrc = 0, diagMalformed = 0, diagTimeout = 0, diagOverflow = 0, diagNoise = 0;
 uint32_t diagTimedSession = 0, diagTimedSequence = 0;
 uint8_t diagTimedResult = 0;  // 0 none, 1 running, 2 done, 3 USB error, 4 expired
 void increment(uint32_t &value) { if (value != 0xffffffffUL) ++value; }
@@ -66,11 +67,11 @@ void command() {
                     (count==17 && !strcmp(parts[3],"TIMED"));
   if (!validShape) { rejectMalformed(); return; }
   increment(diagReceived);
-  char response[128], diagnostic[96]; const char *result="ERROR";
+  char response[160], diagnostic[120]; const char *result="ERROR";
   if (count==4 && !strcmp(parts[3],"DIAG")) {
     // The snapshot includes this request, but not its own reply.
-    snprintf(diagnostic,sizeof(diagnostic),"%lu:%lu:%lu:%lu:%lu:%lu:%lu:%lu:%lu:%s",
-             diagReceived,diagRejected,diagReplies,diagCrc,diagMalformed,diagTimeout,diagOverflow,
+    snprintf(diagnostic,sizeof(diagnostic),"%lu:%lu:%lu:%lu:%lu:%lu:%lu:%lu:%lu:%lu:%s",
+             diagReceived,diagRejected,diagReplies,diagCrc,diagMalformed,diagTimeout,diagOverflow,diagNoise,
              diagTimedSession,diagTimedSequence,timedResult());
     snprintf(response,sizeof(response),"2,%lu,%lu,DIAG,%s",sid,seq,diagnostic);
     reply(response); return;
@@ -128,20 +129,23 @@ void loop() {
   // A timed-out prefix is already irrecoverable.  Reset immediately so the
   // following request need not donate its terminating newline to the discard.
   if (length && now-started>=LINE_MS) { increment(diagRejected); increment(diagTimeout); length=0; }
+  // An overlong line normally ends at its newline, but it must not prevent a
+  // later request forever when that newline was lost.
+  if (discard && now-discardedAt>=LINE_MS) discard=false;
   if (Serial1.available()) {
     char c=Serial1.read();
     if (c=='\n') { if (!discard && length) { line[length]='\0'; command(); } length=0; discard=false; }
     else if (!discard) {
-      // Seek a protocol-version prefix while idle.  This resynchronizes after
-      // bytes that precede a complete request, without scanning inside one.
+      // Seek a protocol-version prefix while idle.  Count discarded noise
+      // bytes separately from rejected frames so diagnostics remain useful.
       if (!length) {
         if (c=='2') { line[length++]=c; started=millis(); }
-        else rejectMalformed();
-      } else if (length==1 && line[0]=='2' && c!=',') {
-        rejectMalformed(); length=0;
+        else increment(diagNoise);
+      } else if (length==1 && c!=',') {
+        increment(diagNoise); length=0;
         if (c=='2') { line[length++]=c; started=millis(); }
       } else if (length<sizeof(line)-1) line[length++]=c;
-      else { increment(diagRejected); increment(diagOverflow); length=0; discard=true; }
+      else { increment(diagRejected); increment(diagOverflow); length=0; discard=true; discardedAt=millis(); }
     }
   }
 }

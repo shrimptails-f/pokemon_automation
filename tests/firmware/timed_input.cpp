@@ -92,11 +92,11 @@ int main() {
   assert(diagReceived == 0xffffffffUL);
 
   // Feed the real loop one byte at a time, as Serial1 does on hardware.
-  diagReceived = diagRejected = diagCrc = diagMalformed = diagTimeout = diagOverflow = 0;
+  diagReceived = diagRejected = diagCrc = diagMalformed = diagTimeout = diagOverflow = diagNoise = 0;
   Serial1.output.clear();
   receive("x" + frame("2,77,0,STATUS"));
   assert(Serial1.output.find("2,77,0,STATUS,") != std::string::npos);
-  assert(diagReceived == 1 && diagMalformed == 1);
+  assert(diagReceived == 1 && diagRejected == 0 && diagNoise == 1);
 
   // A partial line expires without consuming the newline of the next request.
   Serial1.output.clear();
@@ -116,9 +116,11 @@ int main() {
   receive(badCrc);
   assert(diagReceived == 3 && diagCrc == 1);
 
-  // An overlong line is discarded through its newline; the next frame recovers.
-  receive("2," + std::string(158, 'x') + "\n");
+  // An overlong line recovers after its deadline even when its newline is lost.
+  receive("2," + std::string(158, 'x'));
   assert(diagOverflow == 1);
+  currentTime += LINE_MS;
+  loop();
   Serial1.output.clear();
   receive(frame("2,77,4,STATUS"));
   assert(Serial1.output.find("2,77,4,STATUS,") != std::string::npos);
