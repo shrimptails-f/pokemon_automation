@@ -63,7 +63,7 @@ def test_encounter_saves_24_frames_in_requested_window(tmp_path, monkeypatch):
         def __init__(self):
             self.paths = []
         def read(self):
-            return object()
+            return np.zeros((64, 64, 3), dtype=np.uint8)
         def save(self, frame, path):
             self.paths.append(path)
 
@@ -73,7 +73,34 @@ def test_encounter_saves_24_frames_in_requested_window(tmp_path, monkeypatch):
 
     capture = Capture()
     monkeypatch.setattr(module, 'classify_directory', lambda directory: ('unknown', []))
-    module.encounter(Controller(), capture, tmp_path, clock=Clock(), sleep=lambda _: None)
+    module.encounter(Controller(), capture, tmp_path, duration=2.3, clock=Clock(), sleep=lambda _: None)
     timestamps = [float(path.stem.rsplit('_', 1)[1][:-1]) for path in capture.paths]
     assert len(timestamps) == 24
     assert all(8.2 <= t < 10.5 for t in timestamps)
+    assert (capture.paths[0].parent / 'encounter.mp4').is_file()
+
+
+def test_sparkle_candidate_overrides_normal_color(tmp_path, monkeypatch):
+    from title.BDSP.pokemon.giratina import encounter as module
+
+    class Clock:
+        elapsed = 0.0
+        def __call__(self):
+            self.elapsed += .01
+            return self.elapsed
+
+    class Capture:
+        def read(self):
+            return np.zeros((64, 64, 3), dtype=np.uint8)
+        def save(self, frame, path):
+            pass
+
+    class Controller:
+        def send(self, command):
+            pass
+
+    monkeypatch.setattr(module, 'classify_directory', lambda directory: ('normal', []))
+    monkeypatch.setattr(module, 'detect_sparkle', lambda directory: (True, []))
+    result = module.encounter(Controller(), Capture(), tmp_path, duration=.2, interval=.1,
+                              clock=Clock(), sleep=lambda _: None)
+    assert result.classification == 'shiny_candidate'
