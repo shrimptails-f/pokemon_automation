@@ -35,6 +35,19 @@ def classify_frame(path):
     similarity = max(float(cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)[0, 0])
                      for template in templates)
     if similarity < .70:
+        # The lowered pose exposes the wings before the central stripes.
+        bowed_paths = [TEMPLATES / f'bowed_{name}.png' for name in ('142130', '142208', '142225')]
+        bowed_templates = [cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) for path in bowed_paths]
+        if any(template is None for template in bowed_templates):
+            return 'unknown', red, cyan
+        bowed_similarity = max(float(cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)[0, 0])
+                               for template in bowed_templates)
+        if bowed_similarity >= .80:
+            wing_hsv = cv2.cvtColor(image[150:385, 160:480], cv2.COLOR_BGR2HSV)
+            wh, ws, wv = cv2.split(wing_hsv)
+            wing_cyan = ((wh >= 80) & (wh <= 110) & (ws > 90) & (wv > 65)).mean()
+            if wing_cyan > .03:
+                return 'shiny_candidate', red, cyan
         return 'unknown', red, cyan
     if cyan > .05:
         return 'shiny_candidate', red, cyan

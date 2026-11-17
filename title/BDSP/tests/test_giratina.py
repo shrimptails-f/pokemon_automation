@@ -12,6 +12,8 @@ def test_reference_images():
     assert classify_frame(base / 'normal.png')[0] == 'normal'
     assert classify_frame(base / 'unknown.png')[0] == 'unknown'
     assert classify_frame(base / 'shiny_reference.png')[0] == 'shiny_candidate'
+    assert classify_frame(base / 'shiny_bowed_wings.png')[0] == 'shiny_candidate'
+    assert classify_frame(base / 'shiny_bowed_body.png')[0] == 'shiny_candidate'
 
 
 def test_directory_requires_two_normal_frames_and_prioritizes_shiny(tmp_path, monkeypatch):
