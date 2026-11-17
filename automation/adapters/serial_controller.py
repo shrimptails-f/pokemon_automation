@@ -11,6 +11,7 @@ BUTTONS = {name: bit for bit, name in enumerate(("Y", "B", "A", "X", "L", "R", "
 HATS = {"UP": 0, "RIGHT": 2, "DOWN": 4, "LEFT": 6}
 NEUTRAL = (0, 8, 128, 128, 128, 128)
 RESPONSE_TIMEOUT = 0.7
+# Keep port settings fixed after opening to avoid Windows serial reconfiguration.
 READ_TIMEOUT = 0.05
 WRITE_TIMEOUT = 0.5
 ATTEMPTS = 2
@@ -56,7 +57,7 @@ class SerialController:
             raise
         return self
 
-    def _request(self, command, expected):
+    def _request(self, command, expected, response_timeout=RESPONSE_TIMEOUT, attempts=ATTEMPTS, button=None):
         with self.lock:
             if self.failure:
                 raise RuntimeError("コントローラー通信が停止しました") from self.failure
@@ -69,8 +70,9 @@ class SerialController:
             samples = []
             started = time.monotonic()
             pending = bytearray()
-            for attempt in range(1, ATTEMPTS + 1):
-                deadline = time.monotonic() + RESPONSE_TIMEOUT
+            for attempt in range(1, attempts + 1):
+                before_empty, before_invalid, before_mismatch = empty_reads, invalid_reads, mismatch_reads
+                deadline = time.monotonic() + response_timeout
                 self.port.write(frame)
                 while time.monotonic() < deadline:
                     raw = self.port.readline()
@@ -99,14 +101,19 @@ class SerialController:
                     if expected is not None and fields[4] != expected:
                         raise ProtocolError(fields[4])
                     if attempt > 1 or invalid_reads or mismatch_reads:
-                        logger.debug("応答を確認: 操作=%s 番号=%s 送信=%s回 経過=%.3f秒 不正=%s 別応答=%s 受信例=%s",
-                                     operation, seq, attempt, time.monotonic() - started, invalid_reads, mismatch_reads, samples)
+                        logger.debug("応答を確認: 操作=%s ボタン=%s 番号=%s 送信=%s回 経過=%.3f秒 不正=%s 別応答=%s 受信例=%s",
+                                     operation, button or '-', seq, attempt, time.monotonic() - started, invalid_reads, mismatch_reads, samples)
                     return fields[4]
-            logger.warning("Arduino 応答タイムアウト: ポート=%s 操作=%s セッション=%s 番号=%s 送信=%s回 "
+                if attempt < attempts:
+                    logger.debug("再送: 操作=%s ボタン=%s セッション=%s 番号=%s 送信=%s回目の応答待ち期限切れ "
+                                 "空読み=%s 不正=%s 別応答=%s 受信例=%s（要求・応答の損失や遅延は区別不可）",
+                                 operation, button or '-', self.session, seq, attempt, empty_reads - before_empty,
+                                 invalid_reads - before_invalid, mismatch_reads - before_mismatch, samples)
+            logger.warning("Arduino 応答タイムアウト: ポート=%s 操作=%s ボタン=%s セッション=%s 番号=%s 送信=%s回 "
                            "経過=%.3f秒 空読み=%s 不正=%s 別応答=%s 受信例=%s",
-                           self.port_name, operation, self.session, seq, ATTEMPTS, time.monotonic() - started,
+                           self.port_name, operation, button or '-', self.session, seq, attempts, time.monotonic() - started,
                            empty_reads, invalid_reads, mismatch_reads, samples)
-            raise TimeoutError(f"Arduino 応答がありません（操作={operation}, 番号={seq}, 送信={ATTEMPTS}回）。操作結果は不明です")
+            raise TimeoutError(f"Arduino 応答がありません（操作={operation}, 番号={seq}, 送信={attempts}回）。操作結果は不明です")
 
     def _establish_session(self):
         for attempt in range(RECOVERY_ATTEMPTS):
@@ -243,7 +250,7 @@ class SerialController:
         deadline = time.monotonic() + duration_ms / 1000 + RESPONSE_TIMEOUT * ATTEMPTS + 2
         try:
             while True:
-                result = self._request(command, None)
+                result = self._request(command, None, button=button_command)
                 if result == "DONE":
                     return
                 if result != "RUNNING":

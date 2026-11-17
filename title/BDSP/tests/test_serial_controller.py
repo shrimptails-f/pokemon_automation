@@ -1,3 +1,4 @@
+import logging
 import serial
 import pytest
 
@@ -42,13 +43,14 @@ class FakePort:
         self.closed = True
 
 
-def test_press_and_release_and_retry_same_request(monkeypatch):
+def test_press_and_release_and_retry_same_request(monkeypatch, caplog):
     port = FakePort()
     monkeypatch.setattr(serial, 'Serial', lambda *a, **kw: port)
     monkeypatch.setattr('automation.adapters.serial_controller.time.sleep', lambda _: None)
-    with SerialController('COM8') as controller:
-        port.drop_set = True
-        controller.send('A')
+    with caplog.at_level(logging.DEBUG, logger='automation.adapters.serial_controller'):
+        with SerialController('COM8') as controller:
+            port.drop_set = True
+            controller.send('A')
     timed = [r for r in port.requests if r[3] == 'TIMED']
     assert len(timed) >= 2
     assert all(r == timed[0] for r in timed)
@@ -57,11 +59,29 @@ def test_press_and_release_and_retry_same_request(monkeypatch):
     assert timed[0][-1] == '150'
     assert all(frame.startswith(b'\n2,') for frame in port.raw_requests)
     assert port.closed
+    assert '再送: 操作=TIMED' in caplog.text
+    assert 'ボタン=A' in caplog.text
+    assert '1回目の応答待ち期限切れ' in caplog.text
+    assert '要求・応答の損失や遅延は区別不可' in caplog.text
 
 
 def test_rejects_out_of_range_state():
     with pytest.raises(ValueError):
         SerialController('COM8').set_state(hat=9)
+
+
+@pytest.mark.parametrize('command', ['A', 'STICK_UP 3000'])
+def test_timed_request_includes_button_for_logging(command):
+    controller = SerialController('COM8')
+    observed = []
+
+    def request(frame, expected, button):
+        observed.append(button)
+        return 'DONE'
+
+    controller._request = request
+    controller.send(command)
+    assert observed == [command]
 
 
 def test_corrupt_response_is_not_accepted(monkeypatch):
