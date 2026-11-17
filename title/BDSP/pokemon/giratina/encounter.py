@@ -10,7 +10,7 @@ from title.BDSP.pokemon.giratina.classify import classify_directory
 def encounter(controller, capture, output, delay=8.2, duration=2.3, interval=2.3 / 24, a_after=3, *,
               clock=time.monotonic, sleep=time.sleep):
     capture.read()
-    print("映像と Arduino に接続しました。3 秒後に A を押します。中止は Ctrl+C。", flush=True)
+    print("映像を確認しました。3 秒後に A を押します。中止は Ctrl+C。", flush=True)
     sleep(3)
     controller.send("A")
     sleep(a_after)

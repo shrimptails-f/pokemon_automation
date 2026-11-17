@@ -85,6 +85,7 @@ def main():
             reset(stoppable_controller, sleep=sleep)
 
         with SerialController(args.port) as controller:
+            print("Arduino に接続しました。", flush=True)
             stoppable_controller = StoppableController(controller)
             if args.discord:
                 from automation.adapters.discord.review import main as discord_main

@@ -40,13 +40,14 @@ def test_connection_is_reused_and_closed_after_discord_loop(monkeypatch):
         encounter()
         reset()
 
-    monkeypatch.setattr(sys, 'argv', ['review_loop.py', 'COM8', '--move-ms', '500', '--a-after', '15', '--discord'])
+    monkeypatch.setattr(sys, 'argv', ['review_loop.py', 'COM8', '--pokemon', 'giratina', '--discord'])
     monkeypatch.setattr(app, 'SerialController', Controller)
     monkeypatch.setattr(app, 'OpenCVCapture', Capture)
     monkeypatch.setattr(app, 'reset', lambda controller, **kwargs: controller.send('HOME'))
     import automation.adapters.discord.review as discord_review
+    import title.BDSP.pokemon.giratina.encounter as giratina
     monkeypatch.setattr(discord_review, 'main', discord_main)
-    monkeypatch.setattr(app, 'encounter', lambda controller, *args, **kwargs: controller.send('A'))
+    monkeypatch.setattr(giratina, 'encounter', lambda controller, *args, **kwargs: controller.send('A'))
     app.main()
     assert events == [('open', 'COM8'), ('thread',), ('send', 'HOME'), ('send', 'A'),
                       ('send', 'HOME'), ('close',)]
@@ -63,7 +64,7 @@ def test_connection_failure_prevents_discord_start(monkeypatch, capsys):
         def __exit__(self, *args):
             pass
 
-    monkeypatch.setattr(sys, 'argv', ['review_loop.py', 'COM8', '--move-ms', '500', '--a-after', '15', '--discord'])
+    monkeypatch.setattr(sys, 'argv', ['review_loop.py', 'COM8', '--pokemon', 'giratina', '--discord'])
     monkeypatch.setattr(app, 'SerialController', Controller)
     with pytest.raises(SystemExit, match='PING 応答'):
         app.main()
