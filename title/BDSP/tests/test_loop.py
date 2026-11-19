@@ -26,8 +26,11 @@ class LoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             normal = Path(temp) / 'normal'
             normal.mkdir()
+            (normal / 'encounter.mp4').write_bytes(b'video')
+            (normal / 'frame_000.png').write_bytes(b'image')
             shiny = Path(temp) / 'shiny'
             shiny.mkdir()
+            (shiny / 'encounter.mp4').write_bytes(b'video')
             results = iter([EncounterResult('normal', normal), EncounterResult('shiny_candidate', shiny)])
             resets = []
             ports = Ports()
@@ -35,6 +38,7 @@ class LoopTests(unittest.TestCase):
             self.assertEqual(resets, [True])
             self.assertFalse(normal.exists())
             self.assertTrue(shiny.exists())
+            self.assertTrue((shiny / 'encounter.mp4').exists())
             self.assertEqual(ports.reviews, [EncounterResult('shiny_candidate', shiny)])
 
     def test_shiny_review_can_resume(self):
@@ -68,6 +72,20 @@ class LoopTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             reset(controller, sleep=lambda _: None)
         self.assertEqual(controller.commands, ['HOME', 'X'])
+
+    def test_reset_shortens_initial_intervals(self):
+        events = []
+        class Controller:
+            def send(self, command):
+                events.append(('send', command))
+        reset(Controller(), sleep=lambda seconds: events.append(('sleep', seconds)))
+        self.assertEqual(events, [
+            ('send', 'HOME'), ('sleep', 1.5), ('send', 'X'), ('sleep', 1.5),
+            ('send', 'A'), ('sleep', 1.5), ('send', 'A'), ('sleep', 1.5),
+            ('send', 'A'), ('sleep', 2), ('sleep', 12.5),
+            ('send', 'A'), ('sleep', 2), ('send', 'A'), ('sleep', 2),
+            ('send', 'A'), ('sleep', 7),
+        ])
 
 
 if __name__ == '__main__':

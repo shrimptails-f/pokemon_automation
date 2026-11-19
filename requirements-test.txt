@@ -1,7 +1,7 @@
 # Python tests and their runtime dependencies
+-r title/BDSP/requirements-audio.txt
 pytest>=8,<10
 pytest-xdist>=3.6,<4
-numpy>=1.26,<3
 opencv-python-headless>=4.10,<5
 discord.py>=2.4,<3
 python-dotenv>=1,<2

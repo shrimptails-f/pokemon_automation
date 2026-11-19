@@ -7,15 +7,17 @@ from title.BDSP.domain.result import EncounterResult
 
 
 def encounter(controller: Controller, capture: Capture, classify, output, move_ms, a_after,
-              delay=4.5, duration=1.5, interval=0.25, *, clock=time.monotonic, sleep=time.sleep):
+              delay=4.5, duration=1.5, interval=0.25, *, clock=time.monotonic, sleep=time.sleep,
+              report=print, status=print):
     capture.read()  # Verify the video before moving.
-    print("映像と Arduino に接続しました。3 秒後に前進します。中止は Ctrl+C。", flush=True)
+    status("映像に接続しました。")
     sleep(3)
     controller.send(f"STICK_UP {move_ms}")
     deadline = clock() + a_after
     while clock() < deadline:
         capture.read()
     controller.send("A")
+    status("撮影中")
     start = clock()
     directory = output / datetime.now().strftime("encounter_%Y%m%d_%H%M%S_%f")
     directory.mkdir(parents=True, exist_ok=False)
@@ -28,8 +30,9 @@ def encounter(controller: Controller, capture: Capture, classify, output, move_m
             capture.save(frame, directory / f"frame_{count:03d}_{elapsed:.3f}s.png")
             count += 1
             next_save = elapsed + interval
+    status("画像判定中")
     classification, details = classify(directory)
     if classification not in ("normal", "unknown", "shiny_candidate"):
         raise RuntimeError("不明な判定結果です。")
-    print(f"{count} 枚保存しました: {directory}。判定: {classification}（対象 {len(details)} 枚）", flush=True)
+    report(f"{count} 枚保存しました: {directory}。判定: {classification}（対象 {len(details)} 枚）")
     return EncounterResult(classification, directory)

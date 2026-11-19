@@ -2,11 +2,14 @@
 import asyncio
 from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import datetime, timezone
+import logging
 import os
 from pathlib import Path
 
 import discord
 from dotenv import load_dotenv
+
+from automation.adapters.console_review import ConsoleStatus, status_log
 
 class ReviewView(discord.ui.View):
     def __init__(self, user_id):
@@ -58,6 +61,7 @@ class DiscordPorts:
                     raise InterruptedError("中止しました。")
 
     def update(self, attempt, state):
+        ConsoleStatus().update(attempt, state)
         self.attempt = attempt
         async def update_message():
             if not self.client.is_ready():
@@ -69,8 +73,11 @@ class DiscordPorts:
     def should_reset(self, result):
         async def ask():
             images = sorted(result.directory.glob("frame_*.png"))
-            if not images or len(images) > 10:
+            if not images:
                 raise RuntimeError("確認画像を送信できません。")
+            if len(images) > 10:
+                # Sample across the capture window for Discord’s attachment limit.
+                images = [images[round(i * (len(images) - 1) / 9)] for i in range(10)]
             view = ReviewView(self.user_id)
             files = [discord.File(str(path)) for path in images]
             try:
@@ -82,7 +89,6 @@ class DiscordPorts:
                     file.close()
             await view.wait()
             return view.choice
-        self.update(self.attempt, "画像確認待ち")
         return self.call(ask())
 
 
@@ -98,10 +104,11 @@ async def run(args, token, channel_id, user_id, encounter, reset, run_loop, stop
         if started:
             return
         started = True
+        status_log.info("Discord に接続しました。")
         try:
             channel = await client.fetch_channel(channel_id)
             thread = await channel.create_thread(name="BDSP 周回状況", type=discord.ChannelType.public_thread)
-            print(f"スレッド: {thread.jump_url}", flush=True)
+            logging.getLogger(__name__).info("スレッド: %s", thread.jump_url)
             message = await thread.send("BDSP 周回を開始します。")
             ports = DiscordPorts(asyncio.get_running_loop(), client, thread, message, user_id, stop)
             worker = asyncio.create_task(asyncio.to_thread(run_loop, encounter, reset, ports, ports,
