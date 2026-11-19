@@ -1,11 +1,13 @@
 """Compose the BDSP application and its hardware adapters."""
 import argparse
+from contextlib import ExitStack
+from datetime import datetime
 import logging
 from pathlib import Path
 import sys
 import threading
 
-from automation.adapters.console_review import ConsoleReview, ConsoleStatus
+from automation.adapters.console_review import ConsoleReview, ConsoleStatus, TerminalStatus, status_log
 from automation.adapters.opencv_capture import OpenCVCapture
 from automation.adapters.serial_controller import SerialController
 from title.BDSP.application.loop import run_loop
@@ -25,7 +27,7 @@ def main():
     parser.add_argument("--capture-interval", type=float, default=2.3 / 24)
     parser.add_argument("--auto-reset", action="store_true")
     parser.add_argument("--discord", action="store_true")
-    parser.add_argument("--debug", action="store_true", help="Arduino の通信ログを表示する")
+    parser.add_argument("--debug", action="store_true", help="Arduino の詳細な通信ログをファイルに記録する")
     parser.add_argument("--reset-first", action="store_true")
     parser.add_argument("--output", type=Path, default=Path.home() / "Pictures" / "BDSP-captures")
     parser.add_argument("--audio-reference", type=Path, help="色違い音声の参照動画または音声")
@@ -36,15 +38,30 @@ def main():
     args = parser.parse_args()
     if args.audio_reference and (args.pokemon != 'giratina' or args.audio_start < 0 or args.audio_end <= args.audio_start or not 0 < args.audio_threshold <= 1):
         parser.error('音声判定はギラティナのみ対応し、参照時間としきい値を正しく指定してください。')
-    if args.debug:
-        serial_logger = logging.getLogger("automation.adapters.serial_controller")
-        serial_logger.setLevel(logging.DEBUG)
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(asctime)s [Arduino] %(message)s", datefmt="%H:%M:%S"))
-        serial_logger.addHandler(handler)
-        serial_logger.propagate = False
     if args.device < 0 or (args.pokemon == "arceus" and (args.move_ms is None or args.a_after is None or not 1 <= args.move_ms <= 3000 or not 0 <= args.a_after <= 120)) or (args.pokemon == "giratina" and args.a_after is not None and not 0 <= args.a_after <= 120) or not 0 <= args.capture_delay <= 120 or not 0.1 <= args.capture_duration <= 120 or not 0.05 <= args.capture_interval <= 60:
         parser.error("move-ms は 1〜3000、a-after は 0〜120、device は 0 以上にしてください")
+    with ExitStack() as stack:
+        directory = args.output / "logs"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / datetime.now().strftime("review_%Y%m%d_%H%M%S_%f.log")
+        file_log = logging.FileHandler(path, encoding="utf-8")
+        stack.callback(file_log.close)
+        file_log.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        for name in ("bdsp", "automation", __name__):
+            logger = logging.getLogger(name)
+            stack.callback(logger.setLevel, logger.level)
+            logger.setLevel(logging.DEBUG if args.debug and name == "automation" else logging.INFO)
+            logger.addHandler(file_log)
+            stack.callback(logger.removeHandler, file_log)
+        terminal = TerminalStatus()
+        status_log.addHandler(terminal)
+        stack.callback(status_log.removeHandler, terminal)
+        stack.callback(terminal.finish)
+        print(f"ログ: {path}", flush=True)
+        run(args)
+
+
+def run(args):
     try:
         audio_template = None
         if args.audio_reference:
@@ -90,7 +107,8 @@ def main():
                         return giratina_encounter(stoppable_controller, StoppableCapture(capture), args.output,
                                                   args.capture_delay, args.capture_duration, args.capture_interval,
                                                   args.a_after if args.a_after is not None else 3, sleep=sleep,
-                                                  on_video_start=on_video_start, on_capture_end=on_capture_end)
+                                                  on_video_start=on_video_start, on_capture_end=on_capture_end,
+                                                  report=logging.getLogger(__name__).info, status=status_log.info)
                     if audio_template is None:
                         return capture_giratina()
                     with AudioRecorder(args.audio_device) as recorder:
@@ -102,19 +120,20 @@ def main():
                     add_audio_to_video(result.directory / 'encounter.mp4', samples, offset)
                     video_samples = samples[max(0, round(offset * RATE)):]
                     score, at = correlate(video_samples, audio_template)
-                    print(f"音声相関: {score:.4f}（動画開始から {at:.2f} 秒、しきい値 {args.audio_threshold:.3f}）", flush=True)
+                    logging.getLogger(__name__).info(f"音声相関: {score:.4f}（動画開始から {at:.2f} 秒、しきい値 {args.audio_threshold:.3f}）")
                     if score >= args.audio_threshold:
                         from title.BDSP.domain.result import EncounterResult
                         return EncounterResult('shiny_candidate', result.directory)
                     return result
                 return encounter(stoppable_controller, StoppableCapture(capture), classify_directory,
-                                 args.output, args.move_ms, args.a_after, sleep=sleep)
+                                 args.output, args.move_ms, args.a_after, sleep=sleep,
+                                 report=logging.getLogger(__name__).info, status=status_log.info)
 
         def do_reset():
             reset(stoppable_controller, sleep=sleep)
 
         with SerialController(args.port) as controller:
-            print("Arduino に接続しました。", flush=True)
+            status_log.info("Arduino に接続しました。")
             stoppable_controller = StoppableController(controller)
             if args.discord:
                 from automation.adapters.discord.review import main as discord_main
@@ -127,7 +146,7 @@ def main():
         logging.getLogger(__name__).exception("操作中にエラーが発生しました")
         sys.exit(f"操作を停止しました: {exc}")
     except (KeyboardInterrupt, EOFError):
-        print("\n停止しました。")
+        status_log.info("停止しました。")
 
 
 if __name__ == "__main__":

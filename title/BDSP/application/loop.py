@@ -20,8 +20,10 @@ def run_loop(encounter: Callable[[], EncounterResult], reset: Callable[[], None]
             raise RuntimeError("不明な判定結果です。")
         if auto_reset and result.classification == "normal":
             shutil.rmtree(result.directory)
-        elif not review.should_reset(result):
-            status.update(attempt, "停止")
-            return
+        else:
+            status.update(attempt, f"画像確認待ち（{result.classification}）")
+            if not review.should_reset(result):
+                status.update(attempt, "停止")
+                return
         status.update(attempt, "リセット中")
         reset()
