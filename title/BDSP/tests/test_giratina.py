@@ -50,7 +50,7 @@ def test_missing_or_blank_frames_are_unknown():
         assert classify_directory(directory)[0] == 'unknown'
 
 
-def test_encounter_saves_24_frames_in_requested_window(tmp_path, monkeypatch):
+def test_encounter_saves_15_frames_per_second_in_requested_window(tmp_path, monkeypatch):
     from title.BDSP.pokemon.giratina import encounter as module
 
     class Clock:
@@ -73,10 +73,10 @@ def test_encounter_saves_24_frames_in_requested_window(tmp_path, monkeypatch):
 
     capture = Capture()
     monkeypatch.setattr(module, 'classify_directory', lambda directory: ('unknown', []))
-    module.encounter(Controller(), capture, tmp_path, duration=2.3, clock=Clock(), sleep=lambda _: None)
+    module.encounter(Controller(), capture, tmp_path, duration=2.0, clock=Clock(), sleep=lambda _: None)
     timestamps = [float(path.stem.rsplit('_', 1)[1][:-1]) for path in capture.paths]
-    assert len(timestamps) == 24
-    assert all(8.2 <= t < 10.5 for t in timestamps)
+    assert len(timestamps) == 30
+    assert all(8.2 <= t < 10.2 for t in timestamps)
     assert (capture.paths[0].parent / 'encounter.mp4').is_file()
 
 
