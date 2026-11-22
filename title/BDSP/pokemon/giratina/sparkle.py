@@ -48,15 +48,21 @@ def detect_sparkle(directory):
     previous_scene = None
     scene_changed = False
     transition = None
-    for timestamp, value, _, scene, _ in frames:
+    for timestamp, value, _, scene, sendout in frames:
         if timestamp <= last_dialogue - .6 or timestamp > last_dialogue + 2.0:
             continue
         if timestamp > last_dialogue and previous_scene is not None:
             change = np.mean(cv2.absdiff(scene, previous_scene))
             if change > 30:
+                # A shiny Giratina cuts to a wider shot before sparkling, so keep
+                # analysing with a baseline taken from the new scene.
+                if not scene_changed:
+                    transition = timestamp
                 scene_changed = True
-                transition = timestamp
-                break
+                history = []
+        # The send-out ball flash follows this dialogue; it is not a shiny effect.
+        if timestamp > last_dialogue and sendout:
+            break
         previous_scene = scene
         # A stale baseline would confuse camera motion with flashes.
         history = [(t, v) for t, v in history if timestamp - t <= .6]

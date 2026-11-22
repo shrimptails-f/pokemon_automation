@@ -51,3 +51,11 @@ def test_audio_is_disabled_without_device_or_for_other_pokemon():
     args = _args(pokemon='arceus', audio_device=0)
     assert resolve_audio(args) and args.audio_reference is None
     assert not resolve_audio(_args(pokemon='arceus', audio_reference=Path('ref.mp4')))
+
+
+def test_real_shiny_sparkle_after_camera_cut_is_candidate():
+    from title.BDSP.pokemon.giratina.sparkle import detect_sparkle
+
+    candidate, diagnostics = detect_sparkle(FIXTURE)
+    assert candidate is True
+    assert [round(t, 3) for t, _, _, hit in diagnostics if hit] == [12.624, 12.707]
