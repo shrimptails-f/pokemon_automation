@@ -18,7 +18,7 @@ def main():
     fps = capture.get(cv2.CAP_PROP_FPS)
     if not capture.isOpened() or fps <= 0:
         raise ValueError('入力動画を開けません。')
-    step = max(1, round(fps * (2.3 / 24)))
+    step = max(1, round(fps / 15))
     with tempfile.TemporaryDirectory() as temp:
         directory = Path(temp)
         i = 0

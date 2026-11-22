@@ -10,7 +10,7 @@ from title.BDSP.pokemon.giratina.classify import classify_directory
 from title.BDSP.pokemon.giratina.sparkle import detect_sparkle
 
 
-def encounter(controller, capture, output, delay=8.2, duration=6.3, interval=2.3 / 24, a_after=3, *,
+def encounter(controller, capture, output, delay=8.2, duration=7.8, interval=1 / 15, a_after=3, *,
               clock=time.monotonic, sleep=time.sleep, on_video_start=None, on_capture_end=None,
               report=print, status=print):
     capture.read()
