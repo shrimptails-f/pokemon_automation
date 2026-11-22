@@ -233,6 +233,12 @@ python -m title.BDSP.pokemon.giratina.sparkle_debug "入力動画.mp4" "確認�
 --audio-reference "参照動画.mp4" --audio-start 12 --audio-end 14 --audio-device 0
 ```
 
+実機で録音した色違いギラティナのきらめき音を `title/BDSP/pokemon/giratina/templates/shiny_sound.wav` に同梱しています（BGM・鳴き声 0、16 kHz モノラル、1.8 秒）。この音を参照にする場合は、ファイル全体を参照区間に指定します。
+
+```powershell
+--audio-reference "title\BDSP\pokemon\giratina\templates\shiny_sound.wav" --audio-start 0 --audio-end 1.8 --audio-device 0
+```
+
 入力デバイス番号は `python -m sounddevice` で確認します。参照区間と相関しきい値 `--audio-threshold`（既定 0.5）は環境に合わせて調整してください。音声でも候補を検出すると確認待ちになります。音声入力の失敗・無音時は操作を停止します。音声は参照ファイルを指定したときだけ有効です。録音は撮影終了時に止め、動画開始以降を照合します。表示する音声相関の時刻は動画開始からのおおよその秒数です。実機の色違い音声では未検証なので、自動リセットの安全性は保証できません。
 
 録画済みファイルを使い、独立した試験ツールで音声照合を確認することもできます。参照動画と照合対象は各自で用意してください。リポジトリのルートで依存関係をインストールし、例えば次のように実行します。
