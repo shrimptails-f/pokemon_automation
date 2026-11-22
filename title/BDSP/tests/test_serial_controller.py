@@ -1,3 +1,4 @@
+import logging
 import serial
 import pytest
 
@@ -42,13 +43,14 @@ class FakePort:
         self.closed = True
 
 
-def test_press_and_release_and_retry_same_request(monkeypatch):
+def test_press_and_release_and_retry_same_request(monkeypatch, caplog):
     port = FakePort()
     monkeypatch.setattr(serial, 'Serial', lambda *a, **kw: port)
     monkeypatch.setattr('automation.adapters.serial_controller.time.sleep', lambda _: None)
-    with SerialController('COM8') as controller:
-        port.drop_set = True
-        controller.send('A')
+    with caplog.at_level(logging.DEBUG, logger='automation.adapters.serial_controller'):
+        with SerialController('COM8') as controller:
+            port.drop_set = True
+            controller.send('A')
     timed = [r for r in port.requests if r[3] == 'TIMED']
     assert len(timed) >= 2
     assert all(r == timed[0] for r in timed)
@@ -57,11 +59,29 @@ def test_press_and_release_and_retry_same_request(monkeypatch):
     assert timed[0][-1] == '150'
     assert all(frame.startswith(b'\n2,') for frame in port.raw_requests)
     assert port.closed
+    assert '再送: 操作=TIMED' in caplog.text
+    assert 'ボタン=A' in caplog.text
+    assert '1回目の応答待ち期限切れ' in caplog.text
+    assert '要求・応答の損失や遅延は区別不可' in caplog.text
 
 
 def test_rejects_out_of_range_state():
     with pytest.raises(ValueError):
         SerialController('COM8').set_state(hat=9)
+
+
+@pytest.mark.parametrize('command', ['A', 'STICK_UP 3000'])
+def test_timed_request_includes_button_for_logging(command):
+    controller = SerialController('COM8')
+    observed = []
+
+    def request(frame, expected, button):
+        observed.append(button)
+        return 'DONE'
+
+    controller._request = request
+    controller.send(command)
+    assert observed == [command]
 
 
 def test_corrupt_response_is_not_accepted(monkeypatch):
@@ -164,6 +184,28 @@ def test_heartbeat_does_not_recover_during_timed_operation(monkeypatch):
     assert calls == ['KEEP']
     assert controller.failure is not None
     assert controller.stopped.is_set()
+
+
+def test_timeout_reports_invalid_and_unmatched_responses(monkeypatch, caplog):
+    import itertools
+
+    controller = SerialController('COM8')
+    controller.port = FakePort()
+    controller.sequence = 12
+    responses = iter([b'corrupt\n', encode_frame(f'2,{controller.session},11,TIMED,DONE')])
+    controller.port.readline = lambda: next(responses, b'')
+    ticks = itertools.count()
+    monkeypatch.setattr('automation.adapters.serial_controller.time.monotonic', lambda: next(ticks) * 0.1)
+
+    with pytest.raises(TimeoutError, match='操作=TIMED.*番号=12.*送信=2回'):
+        controller._request('TIMED,4,8,128,128,128,128,0,8,128,128,128,128,150', None)
+
+    assert 'ポート=COM8' in caplog.text
+    assert '不正=1' in caplog.text
+    assert '別応答=1' in caplog.text
+    assert "corrupt" in caplog.text
+    assert len(controller.port.requests) == 2
+    assert all(request == controller.port.requests[0] for request in controller.port.requests)
 
 
 def test_request_keeps_serial_settings_and_joins_partial_response():

@@ -16,6 +16,55 @@ Dev Container 内で `./controller/switch_arduino_micro/build.sh` を実行す�
 
 このスクリプトは Switch 向けの USB 識別情報を指定します。書き込み後は通常のシリアルポートとして認識されない場合があります。再書き込み時にポートが見つからない場合は、Arduino のリセットボタンを素早く 2 回押してブートローダーを起動し、一時的に現れるポートを指定してください。タイミングによっては再試行が必要です。
 
+## Windows から WSL のソースを使う
+
+WSL にある作業ディレクトリは、Windows の PowerShell から `\\wsl.localhost\<ディストリビューション名>\<WSL 内のパス>` で参照できます。Windows 側に別途リポジトリをクローンする必要はありません。次は WSL の `Ubuntu` にある `/home/user/git_wsl/pokemon_automation` の例です。自分のディストリビューション名とパスに合わせてください。
+
+```powershell
+$repo = "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation"
+Test-Path "$repo\title\BDSP\review_loop.py"
+python "$repo\title\BDSP\review_loop.py" COM8 --device 0 --pokemon giratina --reset-first --discord --debug
+```
+
+`Test-Path` が `True` であることを確認してください。Python とパッケージは Windows 側に用意し、COM ポートと映像デバイス番号は使用する機器に合わせます。`--reset-first` はゲームを起動中の画面から使用します。初回は画面を見ながら確認し、途中で止める場合は Ctrl+C を押してください。
+
+Dev Container の `/home/dev/src` と WSL 側のディレクトリが同じ作業場所か分からない場合は、WSL 側に目印を作り、コンテナから読めるか確認できます。PowerShell で次を実行します。
+
+```powershell
+wsl -d Ubuntu -- bash -c 'echo from-wsl-123 > /home/user/git_wsl/pokemon_automation/.mount-check-wsl'
+```
+
+次に Dev Container のターミナルで確認し、目印を削除します。`from-wsl-123` が表示されれば同じファイルを参照しています。見つからなければパスやマウント設定を確認してください。
+
+```bash
+cat /home/dev/src/.mount-check-wsl
+rm /home/dev/src/.mount-check-wsl
+```
+
+同じディレクトリの場合、コンテナでの編集・Git の更新は Windows から参照するファイルにも反映されます。PC 側と Arduino 側で通信方式が一致するよう、ファームウェアの更新が必要な変更を取り込んだ場合は [書き込み手順](../../docs/windows-arduino-upload.md) に従って更新してください。
+
+## Arduino の通信診断
+
+診断対応ファームウェアを書き込んだ Arduino を通常どおり Switch と SH-U09C に接続し、周回を停止してから Windows の PowerShell で実行します。`COM8` は SH-U09C のポートです。
+
+```powershell
+python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\tools\controller_diagnostics.py" COM8
+```
+
+Arduino 起動後の正常な要求数、破棄した行数、応答の送信試行数、最後に受け付けた時間指定操作のセッション・番号・状態が表示されます。要求数には診断要求も含まれ、応答の送信試行数には今回の診断応答は含まれません。再送はそれぞれ１回ずつ数えます。カウンターは上限で停止し、Arduino を再起動すると消えます。診断要求はセッションや入力状態を変更せず、リースも更新しません。
+
+応答の送信試行数は Arduino が送ろうとした回数であり、PC に届いたことを保証しません。診断コマンドやその応答も通信不良で届かない場合があります。エラーのセッション・番号と最後に受け付けた時間指定操作が一致し、状態が `DONE` なら Arduino は解放の USB 送信成功まで確認していますが、Switch やゲームでの反映は別途確認してください。最後の操作が上書きされた場合や Arduino が再起動した場合は過去の結果を判定できません。
+
+## ボタンを１回だけ操作する
+
+Windows の PowerShell で、現在の Arduino ファームウェアにボタンを１回送れます。周回プログラムを停止してから実行し、`COM8` は SH-U09C のポートに置き換えてください。
+
+```powershell
+python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\tools\send_control.py" COM8 A
+```
+
+末尾を `HOME` や `B`、`UP` などに変えると別の操作を送れます。スティックを上に 500 ms 倒す場合は、末尾を `STICK_UP 500` にします。指定できる操作は `--help` で確認できます。画面が意図しない状態の場合は手動で戻してから実行してください。
+
 ## Windows から操作
 
 Windows に Python を用意し、PowerShell で次を実行します。COM ポートはデバイスマネージャーで SH-U09C のものを確認してください。
@@ -64,7 +113,7 @@ python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\title\BDSP\e
 
 ## 画像を確認して遭遇を繰り返す
 
-`review_loop.py` は撮影後に停止します。保存画像が通常色と確認できた場合に限り `reset` と入力すると、`HOME → X → A → A → A`、14.5 秒待機、`A → A → A`（間隔 2 秒）、7 秒待機の後に次の遭遇を試みます。Enter のみ、または Ctrl+C で停止します。各ボタン間隔は仮の設定で、再起動時の画面遷移は検出しません。最初は実機の画面を見ながら確認してください。`--auto-reset` を付けると通常色の可能性と判定した場合は自動で再起動します。判定不能なら画像確認を待ち、`reset` で再起動して自動ループに戻り、Enter で終了します。色違いの可能性がある場合は停止します。判定は実験段階で、色違いを通常色と誤判定する可能性があります。
+`review_loop.py` は撮影後に停止します。保存画像が通常色と確認できた場合に限り `reset` と入力すると、`HOME → X → A → A → A`、14.5 秒待機、`A → A → A`（間隔 2 秒）、7 秒待機の後に次の遭遇を試みます。最初の `HOME → X → A → A → A` の間隔は 1.5 秒です。Enter のみ、または Ctrl+C で停止します。各ボタン間隔は仮の設定で、再起動時の画面遷移は検出しません。最初は実機の画面を見ながら確認してください。`--auto-reset` を付けると通常色の可能性と判定した場合は自動で再起動します。判定不能なら画像確認を待ち、`reset` で再起動して自動ループに戻り、Enter で終了します。色違いの可能性がある場合は停止します。判定は実験段階で、色違いを通常色と誤判定する可能性があります。
 
 ```powershell
 python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\title\BDSP\review_loop.py" COM8 --device 0 --move-ms 500 --a-after 15
@@ -111,7 +160,7 @@ python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\tools\discor
 
 ## Discord で画像を確認しながら周回
 
-Arduino の接続確認は Discord スレッド作成前に行い、接続は周回終了まで使い続けます。エラー時は `--debug` がなくても発生箇所を表示します。Arduino の送受信を詳しく調べる場合は `--debug` を指定してください。
+周回中はターミナルの同じ行に、現在の周回数と撮影・リセット・画像確認待ちなどの状態を表示します。実行ごとのログは `--output` 配下の `logs/review_*.log` に保存し、起動時にパスを表示します。判定結果やエラーの詳細はこのログで確認できます。`--debug` を付けると Arduino の詳細な通信ログも記録します。Arduino への接続は Discord スレッド作成前に行い、周回終了まで維持します。
 
 `review_loop.py` に `--discord` を付けると、開始時にスレッドを作り、状況メッセージを更新します。画像確認が必要な回だけ指定ユーザーをメンションして画像とボタンを送り、返答を時間制限なく待ちます。「停止」ではリセットしません。通信や送信に失敗した場合も停止します。通信断やPC終了時は最後の状況表示が残るため、更新時刻を確認してください。再起動すると新しいスレッドを作成し、古いボタンは使用できません。
 
@@ -154,3 +203,51 @@ python -m pip install -r requirements-test.txt
 python -m pytest -n auto title/BDSP/tests
 ```
 
+## ギラティナの目の前から遭遇・確認
+
+ギラティナの正面でセーブし、話しかけられる位置から開始します。A を押し、既定で 3 秒後にもう一度 A を押します。2回目の A から既定で 8.2〜14.5 秒の間に、約0.096秒間隔で66枚を保存します。時間内に必要な枚数を撮れなかった場合はエラーで停止します。初回は画面を見て、A の間隔と戦闘画面が撮れていることを確認してください。
+
+```powershell
+python "\\wsl.localhost\Ubuntu\home\user\git_wsl\pokemon_automation\title\BDSP\review_loop.py" COM8 --device 0 --pokemon giratina
+```
+
+既定では画像保存後に確認待ちになります。通常色を確認した場合だけ `reset` と入力すると、既存の再起動手順を実行して次の遭遇へ進みます。Enter で停止します。`--discord` も利用できます。ギラティナの構図に近い画像を選んで色を判定します。通常色の判定には登場セリフも確認します。構図が一致しない画像に水色がある場合、手持ちを出すセリフと確認できなければ判定不能として確認待ちになります。ギラティナの色判定は試験段階です。通常色3回分と YouTube の色違い参考画像3枚で確認しましたが、実機の色違いでは未検証です。`--auto-reset` を指定すると通常色と判定した場合に自動リセットするため、誤判定で色違いを失う可能性があります。判定不能や色違い候補では確認待ちになります。A の間隔は `--a-after`（秒）で調整できます。撮影範囲は `--capture-delay`、`--capture-duration`、`--capture-interval`（秒）で変更できます。再起動は画面遷移を検出しないため、初回は実機で確認してください。
+
+### 色違い音声の試験
+
+ギラティナ周回では、体色と連続画像の発光を調べ、どちらかが候補なら確認待ちになります。発光検出は「ギラティナが現れた！」の表示が消えた後の最大 2 秒を対象にし、画面が大きく切り替わったら打ち切ります。短時間で切り替わっても、必要な画像が連続して撮影され、続く「いっておいで」の表示を確認でき、発光がなければ発光候補なしとします。セリフ未検出、撮影不足、不明な画面切り替えなどは判定不能として確認待ちになります。撮影時間の既定値は 6.3 秒です。`sparkle_diagnostics.csv` に対象画像の発光候補の数値を保存します。発光検出は試験段階で、誤検出や見逃しの可能性があります。
+
+各遭遇のフォルダーに `encounter.mp4` も保存します。2 回目の A 入力後から撮影終了までの映像を約 10 fps で記録し、音声判定が有効な場合は録音した音声も含めます。音声と映像の同期は概算です。`--auto-reset` で通常色と判定した回は、画像と同じくフォルダーごと動画も削除します。確認待ちになった回や手動確認の回は残ります。
+
+録画した動画に検査範囲と各フレームの数値を重ねて確認できます。隣に同じ数値の CSV も作成します。
+
+```powershell
+python -m title.BDSP.pokemon.giratina.sparkle_debug "入力動画.mp4" "確認動画.mp4"
+```
+
+音声も併用するには後述の依存関係をインストールし、周回コマンドに次を追加します。
+
+参照音を用意するときは、ゲームの音量設定で BGM とポケモンの鳴き声を 0 にし、効果音を残して録音します。色違いのきらめきが鳴る区間を確認し、その開始秒と終了秒を指定してください。周回時も同じ音量設定と入力経路を使います。以下の 12 秒と 14 秒は指定例です。この録音方法は [Pokétools の固定リセット手順](https://github.com/fdekeers/poketools#stationary-pok%C3%A9mon-shiny-reset) を参考にしています。
+
+```powershell
+--audio-reference "参照動画.mp4" --audio-start 12 --audio-end 14 --audio-device 0
+```
+
+実機で録音した色違いギラティナのきらめき音を `title/BDSP/pokemon/giratina/templates/shiny_sound.wav` に同梱しています（BGM・鳴き声 0、16 kHz モノラル、1.8 秒）。`--audio-reference` を省略して `--audio-device` だけを指定すると、この音全体を参照にします。
+
+```powershell
+--audio-device 0
+```
+
+`--audio-reference` を指定した場合の `--audio-start` と `--audio-end` の既定値は 12 秒と 14 秒です。
+
+入力デバイス番号は `python -m sounddevice` で確認します。参照区間と相関しきい値 `--audio-threshold`（既定 0.5）は環境に合わせて調整してください。音声でも候補を検出すると確認待ちになります。音声入力の失敗・無音時は操作を停止します。音声判定はギラティナで `--audio-device` か `--audio-reference` を指定したときだけ有効です。録音は撮影終了時に止め、動画開始以降を照合します。表示する音声相関の時刻は動画開始からのおおよその秒数です。同梱の参照音は実機の色違い 1 回分の録音から作ったもので、別の色違い遭遇での検出は未検証です。自動リセットの安全性は保証できません。
+
+録画済みファイルを使い、独立した試験ツールで音声照合を確認することもできます。参照動画と照合対象は各自で用意してください。リポジトリのルートで依存関係をインストールし、例えば次のように実行します。
+
+```powershell
+python -m pip install -r title/BDSP/requirements-audio.txt
+python -m title.BDSP.pokemon.giratina.shiny_audio --reference "参照動画.mp4" --start 12 --end 14 --input "照合動画.mp4"
+```
+
+`--start` と `--end` は参照動画の秒数です。録音して照合するには `--input` の代わりに `--record 20 --device 0` のように指定します。入力デバイス番号は `python -m sounddevice` で確認してください。録音開始後に遭遇させてください。既定のしきい値 0.5 は仮値で、音量や BGM、鳴き声、録音環境により見逃しや誤検出が起こります。参照区間には色違い音以外も含まれるため、通常色と色違い両方の別録音を使って区間としきい値を調整する必要があります。
