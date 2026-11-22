@@ -34,7 +34,7 @@ def main():
     parser.add_argument("--audio-start", type=float, default=12.0)
     parser.add_argument("--audio-end", type=float, default=14.0)
     parser.add_argument("--audio-device", type=int, help="録音入力デバイス番号")
-    parser.add_argument("--audio-threshold", type=float, default=0.7)
+    parser.add_argument("--audio-threshold", type=float, default=0.5)
     args = parser.parse_args()
     if args.audio_reference and (args.pokemon != 'giratina' or args.audio_start < 0 or args.audio_end <= args.audio_start or not 0 < args.audio_threshold <= 1):
         parser.error('音声判定はギラティナのみ対応し、参照時間としきい値を正しく指定してください。')

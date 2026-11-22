@@ -139,7 +139,7 @@ def main():
     source.add_argument('--input', type=Path, help='照合する動画または音声')
     source.add_argument('--record', type=float, help='音声入力から録音する秒数')
     parser.add_argument('--device', type=int, help='録音する音声入力デバイス番号')
-    parser.add_argument('--threshold', type=float, default=0.7, help='候補とする相関値（仮値）')
+    parser.add_argument('--threshold', type=float, default=0.5, help='候補とする相関値（仮値）')
     args = parser.parse_args()
     if args.start < 0 or args.end <= args.start or not 0 < args.threshold <= 1 or (args.record is not None and args.record <= 0):
         parser.error('参照時間、録音時間、しきい値を確認してください。')
