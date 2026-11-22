@@ -16,3 +16,38 @@ def test_bundled_shiny_sound_matches_real_encounter():
     score, at = correlate(read_audio(FIXTURE / 'encounter.mp4'), read_audio(SOUND))
     assert score >= .9
     assert 11.5 <= at <= 13.0
+
+
+def _args(**values):
+    from argparse import Namespace
+    base = dict(pokemon='giratina', audio_reference=None, audio_start=None, audio_end=None,
+                audio_device=None, audio_threshold=.5)
+    return Namespace(**{**base, **values})
+
+
+def test_bundled_sound_is_used_when_only_device_is_given():
+    from title.BDSP.main import SHINY_SOUND, resolve_audio
+
+    assert SHINY_SOUND == SOUND
+    args = _args(audio_device=0)
+    assert resolve_audio(args)
+    assert (args.audio_reference, args.audio_start, args.audio_end) == (SOUND, 0.0, None)
+
+
+def test_explicit_reference_keeps_previous_defaults():
+    from title.BDSP.main import resolve_audio
+
+    args = _args(audio_reference=Path('ref.mp4'), audio_device=0)
+    assert resolve_audio(args)
+    assert (args.audio_start, args.audio_end) == (12.0, 14.0)
+    assert not resolve_audio(_args(audio_reference=Path('ref.mp4'), audio_start=3, audio_end=2))
+
+
+def test_audio_is_disabled_without_device_or_for_other_pokemon():
+    from title.BDSP.main import resolve_audio
+
+    args = _args()
+    assert resolve_audio(args) and args.audio_reference is None
+    args = _args(pokemon='arceus', audio_device=0)
+    assert resolve_audio(args) and args.audio_reference is None
+    assert not resolve_audio(_args(pokemon='arceus', audio_reference=Path('ref.mp4')))

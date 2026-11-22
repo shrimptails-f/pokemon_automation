@@ -14,6 +14,8 @@ from title.BDSP.application.loop import run_loop
 from title.BDSP.gameplay.reset import reset
 from title.BDSP.pokemon.arceus.encounter import encounter
 
+SHINY_SOUND = Path(__file__).resolve().parent / "pokemon" / "giratina" / "templates" / "shiny_sound.wav"
+
 
 def main():
     parser = argparse.ArgumentParser(description="画像を確認しながら遭遇を繰り返す")
@@ -30,13 +32,13 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Arduino の詳細な通信ログをファイルに記録する")
     parser.add_argument("--reset-first", action="store_true")
     parser.add_argument("--output", type=Path, default=Path.home() / "Pictures" / "BDSP-captures")
-    parser.add_argument("--audio-reference", type=Path, help="色違い音声の参照動画または音声")
-    parser.add_argument("--audio-start", type=float, default=12.0)
-    parser.add_argument("--audio-end", type=float, default=14.0)
+    parser.add_argument("--audio-reference", type=Path, help="色違い音声の参照動画または音声（省略時は同梱の音）")
+    parser.add_argument("--audio-start", type=float, help="参照開始秒（参照指定時の既定 12、同梱の音は 0）")
+    parser.add_argument("--audio-end", type=float, help="参照終了秒（参照指定時の既定 14、同梱の音は末尾）")
     parser.add_argument("--audio-device", type=int, help="録音入力デバイス番号")
     parser.add_argument("--audio-threshold", type=float, default=0.5)
     args = parser.parse_args()
-    if args.audio_reference and (args.pokemon != 'giratina' or args.audio_start < 0 or args.audio_end <= args.audio_start or not 0 < args.audio_threshold <= 1):
+    if not resolve_audio(args):
         parser.error('音声判定はギラティナのみ対応し、参照時間としきい値を正しく指定してください。')
     if args.device < 0 or (args.pokemon == "arceus" and (args.move_ms is None or args.a_after is None or not 1 <= args.move_ms <= 3000 or not 0 <= args.a_after <= 120)) or (args.pokemon == "giratina" and args.a_after is not None and not 0 <= args.a_after <= 120) or not 0 <= args.capture_delay <= 120 or not 0.1 <= args.capture_duration <= 120 or not 0.05 <= args.capture_interval <= 60:
         parser.error("move-ms は 1〜3000、a-after は 0〜120、device は 0 以上にしてください")
@@ -61,12 +63,30 @@ def main():
         run(args)
 
 
+def resolve_audio(args):
+    """Fill in the audio reference; the bundled sound is used when only a device is given."""
+    if args.audio_reference is None:
+        if args.audio_device is None or args.pokemon != 'giratina':
+            return args.audio_start is None and args.audio_end is None
+        args.audio_reference = SHINY_SOUND
+        default_start, default_end = 0.0, None
+    else:
+        default_start, default_end = 12.0, 14.0
+    if args.audio_start is None:
+        args.audio_start = default_start
+    if args.audio_end is None:
+        args.audio_end = default_end
+    return (args.pokemon == 'giratina' and args.audio_start >= 0 and 0 < args.audio_threshold <= 1
+            and (args.audio_end is None or args.audio_end > args.audio_start))
+
+
 def run(args):
     try:
         audio_template = None
         if args.audio_reference:
             from title.BDSP.pokemon.giratina.shiny_audio import RATE, AudioRecorder, add_audio_to_video, correlate, read_audio
-            audio_template = read_audio(args.audio_reference, args.audio_start, args.audio_end - args.audio_start)
+            duration = None if args.audio_end is None else args.audio_end - args.audio_start
+            audio_template = read_audio(args.audio_reference, args.audio_start, duration)
         from title.BDSP.pokemon.arceus.classify import classify_directory
         stop = threading.Event()
 
