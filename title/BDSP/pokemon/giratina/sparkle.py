@@ -48,15 +48,21 @@ def detect_sparkle(directory):
     previous_scene = None
     scene_changed = False
     transition = None
-    for timestamp, value, _, scene, _ in frames:
+    for timestamp, value, _, scene, sendout in frames:
         if timestamp <= last_dialogue - .6 or timestamp > last_dialogue + 2.0:
             continue
         if timestamp > last_dialogue and previous_scene is not None:
             change = np.mean(cv2.absdiff(scene, previous_scene))
             if change > 30:
+                # A shiny Giratina cuts to a wider shot before sparkling, so keep
+                # analysing with a baseline taken from the new scene.
+                if not scene_changed:
+                    transition = timestamp
                 scene_changed = True
-                transition = timestamp
-                break
+                history = []
+        # The send-out ball flash follows this dialogue; it is not a shiny effect.
+        if timestamp > last_dialogue and sendout:
+            break
         previous_scene = scene
         # A stale baseline would confuse camera motion with flashes.
         history = [(t, v) for t, v in history if timestamp - t <= .6]
@@ -74,6 +80,13 @@ def detect_sparkle(directory):
             if hit:
                 hits.append(timestamp)
         history.append((timestamp, value))
+    sendout_times = ([t for t, _, _, _, sendout in frames
+                      if sendout and transition <= t <= transition + 1.0]
+                     if scene_changed else [])
+    if sendout_times:
+        # A cut straight to the send-out scene shows the ball flash while the
+        # dialogue is still fading in, before the template can match it.
+        hits = [t for t in hits if t < transition]
     candidate = any(0 < b - a <= .5 for a, b in zip(hits, hits[1:]))
     if candidate:
         return True, diagnostics
@@ -82,8 +95,6 @@ def detect_sparkle(directory):
         return None, diagnostics
     if scene_changed:
         before_cut = [t for t in after if t < transition]
-        sendout_times = [t for t, _, _, _, sendout in frames
-                         if sendout and transition <= t <= transition + 1.0]
         through_sendout = ([t for t, _, _, _, _ in frames if transition <= t <= sendout_times[0]]
                            if sendout_times else [])
         observed = [last_dialogue] + before_cut + through_sendout

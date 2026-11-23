@@ -52,3 +52,13 @@ def test_early_cut_requires_sendout_confirmation(tmp_path):
 def test_early_cut_cannot_hide_flash_candidate(tmp_path):
     make_frames(tmp_path, flash_at=(6, 7), cut_at=9, sendout=True)
     assert detect_sparkle(tmp_path)[0] is True
+
+
+def test_flash_after_cut_to_wider_shot_is_candidate(tmp_path):
+    make_frames(tmp_path, flash_at=(12, 13), cut_at=9)
+    assert detect_sparkle(tmp_path)[0] is True
+
+
+def test_sendout_ball_flash_is_not_candidate(tmp_path):
+    make_frames(tmp_path, flash_at=(11, 12), cut_at=9, sendout=True)
+    assert detect_sparkle(tmp_path)[0] is False
