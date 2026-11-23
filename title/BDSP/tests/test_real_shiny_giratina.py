@@ -59,3 +59,9 @@ def test_real_shiny_sparkle_after_camera_cut_is_candidate():
     candidate, diagnostics = detect_sparkle(FIXTURE)
     assert candidate is True
     assert [round(t, 3) for t, _, _, hit in diagnostics if hit] == [12.624, 12.707]
+
+
+def test_ball_flash_while_sendout_dialogue_fades_in_is_not_candidate():
+    from title.BDSP.pokemon.giratina.sparkle import detect_sparkle
+
+    assert detect_sparkle(FIXTURE.parent / 'normal_sendout_fade')[0] is False

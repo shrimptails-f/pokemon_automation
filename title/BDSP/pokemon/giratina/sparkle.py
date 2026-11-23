@@ -80,6 +80,13 @@ def detect_sparkle(directory):
             if hit:
                 hits.append(timestamp)
         history.append((timestamp, value))
+    sendout_times = ([t for t, _, _, _, sendout in frames
+                      if sendout and transition <= t <= transition + 1.0]
+                     if scene_changed else [])
+    if sendout_times:
+        # A cut straight to the send-out scene shows the ball flash while the
+        # dialogue is still fading in, before the template can match it.
+        hits = [t for t in hits if t < transition]
     candidate = any(0 < b - a <= .5 for a, b in zip(hits, hits[1:]))
     if candidate:
         return True, diagnostics
@@ -88,8 +95,6 @@ def detect_sparkle(directory):
         return None, diagnostics
     if scene_changed:
         before_cut = [t for t in after if t < transition]
-        sendout_times = [t for t, _, _, _, sendout in frames
-                         if sendout and transition <= t <= transition + 1.0]
         through_sendout = ([t for t, _, _, _, _ in frames if transition <= t <= sendout_times[0]]
                            if sendout_times else [])
         observed = [last_dialogue] + before_cut + through_sendout
